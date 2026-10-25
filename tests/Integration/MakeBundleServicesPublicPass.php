@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Msstc4Symfony\SkeletonBundle\Test\Integration;
+namespace Msstc4Symfony\TracingBridgeOtlp\Test\Integration;
 
 use Override;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
@@ -14,7 +14,7 @@ final class MakeBundleServicesPublicPass implements CompilerPassInterface
     public function process(ContainerBuilder $container): void
     {
         foreach ($container->getDefinitions() as $id => $definition) {
-            if (str_starts_with($id, 'Msstc4Symfony\\SkeletonBundle\\')) {
+            if (str_starts_with($id, 'Msstc4Symfony\\TracingBridgeOtlp\\')) {
                 $definition->setPublic(true);
             }
         }

@@ -43,7 +43,7 @@ deptrac:
         - name: BundleRoot
           collectors:
               - type: classLike
-                value: ^Msstc4Symfony\\SkeletonBundle\\SkeletonBundle$
+                value: ^Msstc4Symfony\\TracingBridgeOtlp\\TracingBridgeOtlpBundle$
 
     ruleset:
         Domain: ~

@@ -1,5 +1,5 @@
 {
-  "name": "msstc4symfony/skeleton-bundle",
+  "name": "msstc4symfony/tracing-bridge-otlp",
   "license": "MIT",
   "authors": [
     {
@@ -8,29 +8,59 @@
     }
   ],
   "type": "symfony-bundle",
-  "description": "Starter template for msstc4symfony Symfony bundles",
+  "description": "Exports msstc4symfony/profiling-bundle spans with msstc4symfony/tracing-bundle ids over OTLP",
   "minimum-stability": "stable",
   "keywords": [
     "php",
-    "symfony"
+    "symfony",
+    "tracing",
+    "opentelemetry",
+    "otlp",
+    "profiling"
   ],
   "prefer-stable": true,
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/msstc4symfony/profiling-bundle"
+    },
+    {
+      "type": "vcs",
+      "url": "https://github.com/msstc4symfony/tracing-bridge-profiling"
+    },
+    {
+      "type": "vcs",
+      "url": "https://github.com/msstc4symfony/tracing-bundle"
+    }
+  ],
   "autoload": {
     "psr-4": {
-      "Msstc4Symfony\\SkeletonBundle\\": "src/"
+      "Msstc4Symfony\\TracingBridgeOtlp\\": "src/"
     }
   },
   "autoload-dev": {
     "psr-4": {
-      "Msstc4Symfony\\SkeletonBundle\\Test\\": "tests/"
+      "Msstc4Symfony\\TracingBridgeOtlp\\Test\\": "tests/"
     }
   },
   "require": {
     "php": ">=8.2",
     "composer-runtime-api": ">=2.2",
+    "msstc4symfony/profiling-bundle": "^2.2",
+    "msstc4symfony/tracing-bridge-profiling": "^1.2",
+    "msstc4symfony/tracing-bundle": "^2.2",
+    "nyholm/psr7": "^1.8",
+    "open-telemetry/exporter-otlp": "^1.4",
+    "open-telemetry/sdk": "^1.15",
+    "psr/clock": "^1.0",
+    "psr/log": "^3.0",
+    "symfony/clock": "^7.4|^8.0",
     "symfony/config": "^7.4|^8.0",
     "symfony/dependency-injection": "^7.4|^8.0",
-    "symfony/http-kernel": "^7.4|^8.0"
+    "symfony/event-dispatcher": "^7.4|^8.0",
+    "symfony/http-client": "^7.4|^8.0",
+    "symfony/http-kernel": "^7.4|^8.0",
+    "symfony/service-contracts": "^3.5"
   },
   "require-dev": {
     "friendsofphp/php-cs-fixer": "^3.76",
@@ -40,11 +70,22 @@
     "phpstan/phpstan-symfony": "^2.0",
     "phpunit/phpunit": ">=11.0",
     "rector/rector": "^2.1",
-    "roave/security-advisories": "dev-latest"
+    "roave/security-advisories": "dev-latest",
+    "symfony/console": "^7.4|^8.0",
+    "symfony/filesystem": "^7.4|^8.0",
+    "symfony/framework-bundle": "^7.4|^8.0",
+    "symfony/messenger": "^7.4|^8.0",
+    "symfony/monolog-bundle": "^3.11|^4.0",
+    "symfony/process": "^7.4|^8.0"
+  },
+  "suggest": {
+    "open-telemetry/transport-grpc": "protocol: grpc (needs ext-grpc)"
   },
   "config": {
     "allow-plugins": {
-      "phpstan/extension-installer": true
+      "php-http/discovery": false,
+      "phpstan/extension-installer": true,
+      "tbachert/spi": false
     },
     "sort-packages": true
   },
