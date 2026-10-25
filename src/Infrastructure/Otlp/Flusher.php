@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
+use Closure;
 use DateTimeImmutable;
 use Msstc4Symfony\TracingBridgeOtlp\Application\Port\SpanFlushInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
@@ -27,9 +28,15 @@ final class Flusher implements SpanFlushInterface
     /** Spans drained without export since the last failure. */
     private int $dropped = 0;
 
+    private ?SpanExporterInterface $exporter = null;
+
+    /**
+     * @param Closure(): SpanExporterInterface $exporterFactory called on the first export: a misconfigured endpoint or
+     *                                                          protocol then fails like an export, not the application
+     */
     public function __construct(
         private readonly SpanBuffer $buffer,
-        private readonly SpanExporterInterface $exporter,
+        private readonly Closure $exporterFactory,
         private readonly ClockInterface $clock,
         private readonly LoggerInterface $logger,
     ) {
@@ -50,6 +57,7 @@ final class Flusher implements SpanFlushInterface
         }
 
         try {
+            $this->exporter ??= ($this->exporterFactory)();
             $exported = $this->exporter->export($spans)->await();
         } catch (Throwable $exception) {
             $this->fail(count($spans), $exception);

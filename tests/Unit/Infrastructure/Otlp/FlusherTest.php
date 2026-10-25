@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 
+use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Flusher;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanBuffer;
@@ -40,7 +41,7 @@ final class FlusherTest extends TestCase
         $this->exporter = new RecordingExporter();
         $this->clock = new MockClock('2026-10-25 12:00:00 UTC');
         $this->logger = new RecordingLogger();
-        $this->flusher = new Flusher($this->buffer, $this->exporter, $this->clock, $this->logger);
+        $this->flusher = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger);
     }
 
     public function testFlushExportsTheBufferOnce(): void
@@ -75,6 +76,37 @@ final class FlusherTest extends TestCase
         self::assertSame('warning', $this->logger->records[0]['level']);
         self::assertSame('OTLP span export failed, {count} spans dropped.', $this->logger->records[0]['message']);
         self::assertSame(['count' => 2, 'exception' => $exception], $this->logger->records[0]['context']);
+    }
+
+    public function testAnExporterThatCannotBeBuiltLogsOneWarningAndPauses(): void
+    {
+        $exception = new LogicException('The OTLP protocol "grpc" needs open-telemetry/transport-grpc (and ext-grpc).');
+        $flusher = new Flusher($this->buffer, static fn (): never => throw $exception, $this->clock, $this->logger);
+        $this->fill(2);
+
+        $flusher->flush();
+        $this->fill(1);
+        $flusher->flush();
+
+        self::assertSame([['level' => 'warning', 'message' => 'OTLP span export failed, {count} spans dropped.', 'context' => ['count' => 2, 'exception' => $exception]]], $this->logger->records);
+    }
+
+    public function testTheExporterIsBuiltOnce(): void
+    {
+        $builds = 0;
+        $flusher = new Flusher($this->buffer, function () use (&$builds): RecordingExporter {
+            $builds++;
+
+            return $this->exporter;
+        }, $this->clock, $this->logger);
+
+        $this->fill(1);
+        $flusher->flush();
+        $this->fill(1);
+        $flusher->flush();
+
+        self::assertSame(1, $builds);
+        self::assertCount(2, $this->exporter->batches);
     }
 
     public function testARejectedExportLogsOneWarning(): void

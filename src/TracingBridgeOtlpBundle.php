@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp;
 
+use LogicException;
 use Override;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -23,6 +24,8 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 final class TracingBridgeOtlpBundle extends AbstractBundle
 {
     public const PARAMETER_PREFIX = 'msstc4symfony_tracing_bridge_otlp.';
+
+    private const GRPC_TRANSPORT_FACTORY = 'OpenTelemetry\Contrib\Grpc\GrpcTransportFactory';
 
     protected string $extensionAlias = 'msstc4symfony_tracing_bridge_otlp';
 
@@ -76,6 +79,11 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
     {
         if (!$config['enabled']) {
             return;
+        }
+
+        // A protocol from OTEL_EXPORTER_OTLP_PROTOCOL is only known at runtime: the first export then fails and logs.
+        if ($config['protocol'] === 'grpc' && !class_exists(self::GRPC_TRANSPORT_FACTORY)) {
+            throw new LogicException('msstc4symfony_tracing_bridge_otlp.protocol "grpc" needs open-telemetry/transport-grpc (and ext-grpc).');
         }
 
         foreach ($config as $key => $value) {
