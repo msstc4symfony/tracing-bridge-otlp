@@ -14,11 +14,23 @@ use Symfony\Component\Cache\CacheItem;
  */
 final class CountingPool implements AdapterInterface
 {
-    public int $lookups = 0;
+    private int $lookups = 0;
+
+    private int $writes = 0;
 
     public function __construct(
         private readonly AdapterInterface $inner,
     ) {
+    }
+
+    public function lookups(): int
+    {
+        return $this->lookups;
+    }
+
+    public function writes(): int
+    {
+        return $this->writes;
     }
 
     #[Override]
@@ -66,12 +78,16 @@ final class CountingPool implements AdapterInterface
     #[Override]
     public function save(CacheItemInterface $item): bool
     {
+        $this->writes++;
+
         return $this->inner->save($item);
     }
 
     #[Override]
     public function saveDeferred(CacheItemInterface $item): bool
     {
+        $this->writes++;
+
         return $this->inner->saveDeferred($item);
     }
 

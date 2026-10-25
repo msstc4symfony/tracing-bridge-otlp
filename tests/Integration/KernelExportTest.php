@@ -10,6 +10,7 @@ use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CollectingHandler;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CountingPool;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\Job;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Integration\Kernel\TestKernel;
+use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingExporter;
 use Msstc4Symfony\TracingBundle\Application\Port\TraceContextHolderInterface;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\Baggage;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceContext;
@@ -200,7 +201,25 @@ final class KernelExportTest extends TestCase
         $pool = $this->testContainer()->get(TestKernel::COUNTING_CACHE_APP);
         self::assertInstanceOf(CountingPool::class, $pool);
         self::assertNotSame([], $this->exporter()->getSpans());
-        self::assertSame(0, $pool->lookups);
+        self::assertSame(0, $pool->lookups());
+    }
+
+    public function testAFailedExportDoesNotTouchTheApplicationsCacheEither(): void
+    {
+        $kernel = $this->boot(TestKernel::ENV_FAILING_EXPORT);
+
+        for ($i = 0; $i < 2; $i++) {
+            $request = Request::create('/traced');
+            $kernel->terminate($request, $kernel->handle($request));
+        }
+
+        $pool = $this->testContainer()->get(TestKernel::COUNTING_CACHE_APP);
+        self::assertInstanceOf(CountingPool::class, $pool);
+        self::assertSame([0, 0], [$pool->lookups(), $pool->writes()]);
+        $exporter = $this->testContainer()->get(TestKernel::EXPORTER);
+        self::assertInstanceOf(RecordingExporter::class, $exporter);
+        // The second unit falls in the pause the first one started.
+        self::assertCount(1, $exporter->batches);
     }
 
     public function testDisabledRegistersNoService(): void

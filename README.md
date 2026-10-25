@@ -89,7 +89,7 @@ exporting resumes). There are no retries. The pause is shared through a filesyst
 the PHP-FPM children, cron commands and workers using that directory wait too: a PHP-FPM request reads it once, a
 long-running worker at most once a second. The application's cache pools are not used: their lookups are metrics. When
 the directory is not writable the pause holds per process. The cost of a down receiver is at most `timeout_ms` once per
-pause and directory (typically a host or a container).
+pause and directory: typically a host or a container, several hosts when `share_dir` is a shared volume.
 
 The exporter has its own HTTP client: the application's `http_client` is traced and profiled, so the export would trace
 itself. Install `ext-curl`: the native HTTP client resolves host names without a timeout.

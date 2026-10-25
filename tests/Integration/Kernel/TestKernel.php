@@ -11,6 +11,7 @@ use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\Job;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\JobCommand;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\JobHandler;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\TracedController;
+use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingExporter;
 use Msstc4Symfony\TracingBridgeOtlp\TracingBridgeOtlpBundle;
 use Msstc4Symfony\TracingBridgeProfiling\TracingBridgeProfilingBundle;
 use Msstc4Symfony\TracingBundle\Framework\Messenger\IncomingTraceMiddleware;
@@ -37,6 +38,8 @@ final class TestKernel extends Kernel
     public const ENV_DISABLED = 'disabled';
 
     public const COUNTING_CACHE_APP = 'test.counting_cache_app';
+
+    public const ENV_FAILING_EXPORT = 'failing_export';
 
     // The bridge before profiling-bundle: services are reset in registration order.
     public const ENV_BRIDGE_FIRST = 'bridge_first';
@@ -110,7 +113,9 @@ final class TestKernel extends Kernel
             ->args([service('.inner')])
             ->public()
         ;
-        if ($this->environment !== self::ENV_DISABLED) {
+        if ($this->environment === self::ENV_FAILING_EXPORT) {
+            $services->set(self::EXPORTER, RecordingExporter::class)->args([false])->public();
+        } elseif ($this->environment !== self::ENV_DISABLED) {
             $services->set(self::EXPORTER, InMemoryExporter::class)->public();
         }
     }

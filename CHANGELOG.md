@@ -10,8 +10,12 @@ All notable changes to this bundle are documented here. The format follows
 
 - The export pause is shared through a filesystem cache in `%kernel.share_dir%/msstc4symfony_tracing_bridge_otlp`
   (`%kernel.cache_dir%/…` without a share dir) instead of `cache.app`: every unit of work read `cache.app`, which
-  counted as a cache miss in the application's metrics (metrics-bundle `symfony_cache_request`). The pause is now shared
-  by the processes using that directory, no longer by every host of a `cache.app` on Redis or Memcached.
+  counted as a cache miss in the application's metrics (metrics-bundle `symfony_cache_request`).
+
+### Changed
+
+- The pause is shared by the processes using that directory, no longer by every host of a `cache.app` on Redis or
+  Memcached (unless the directory is a shared volume).
 
 ## [1.0.0] - 2026-10-25
 
