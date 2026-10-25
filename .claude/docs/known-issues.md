@@ -47,7 +47,7 @@
   `open-telemetry/transport-grpc` — `LogicException` при сборке.
 - **Локально `composer update` падает на roave/security-advisories** (PHP 8.4.17 < 8.4.27) — `--ignore-platform-req=php`.
 - **Эквивалентные мутанты** (covered MSI 97 % после ревью): `(string)` ключа заголовка и результата `preg_replace`,
-  `reported[$name] = false` (isset), `0.0` → `1.0` в `max()` паузы (сравнение с текущим временем), ранний
+  `ReportedNames::first()` с `= false` (isset), `0.0` → `1.0` в `max()` паузы (сравнение с текущим временем), ранний
   `return null` в `Flusher::sharedPause()` (ошибку без пула ловит `catch`), быстрый путь `strlen <= limit` в
   `SpanMapper::cut()` (`<=` → `<` и его удаление дают тот же результат, только медленнее).
 
