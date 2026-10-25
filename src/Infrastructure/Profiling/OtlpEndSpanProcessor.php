@@ -19,20 +19,15 @@ use Symfony\Contracts\Service\ResetInterface;
  *
  * @internal
  */
-final class OtlpEndSpanProcessor implements EndSpanProcessorInterface, ResetInterface
+final readonly class OtlpEndSpanProcessor implements EndSpanProcessorInterface, ResetInterface
 {
-    // A long-running command without kernel.reset must not grow the list without bound.
-    public const MAX_REPORTED_NAMES = 256;
-
-    /** @var array<string, true> span names already reported as skipped */
-    private array $reported = [];
-
     public function __construct(
-        private readonly SpanPlacer $placer,
-        private readonly SpanMapper $mapper,
-        private readonly SpanBuffer $buffer,
-        private readonly SpanFlushInterface $flush,
-        private readonly LoggerInterface $logger,
+        private SpanPlacer $placer,
+        private SpanMapper $mapper,
+        private SpanBuffer $buffer,
+        private SpanFlushInterface $flush,
+        private LoggerInterface $logger,
+        private ReportedNames $skipped = new ReportedNames(),
     ) {
     }
 
@@ -58,19 +53,13 @@ final class OtlpEndSpanProcessor implements EndSpanProcessorInterface, ResetInte
     #[Override]
     public function reset(): void
     {
-        $this->reported = [];
+        $this->skipped->reset();
     }
 
     private function reportSkipped(string $name): void
     {
-        if (isset($this->reported[$name])) {
-            return;
+        if ($this->skipped->first($name)) {
+            $this->logger->debug('Span "{span}" is not exported: it is not part of a trace.', ['span' => $name]);
         }
-
-        if (count($this->reported) < self::MAX_REPORTED_NAMES) {
-            $this->reported[$name] = true;
-        }
-
-        $this->logger->debug('Span "{span}" is not exported: it is not part of a trace.', ['span' => $name]);
     }
 }

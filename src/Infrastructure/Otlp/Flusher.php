@@ -115,7 +115,7 @@ final class Flusher implements SpanFlushInterface
         }
 
         $now = $this->now();
-        if ($this->sharedPauseReadAt !== null && $now >= $this->sharedPauseReadAt && $now - $this->sharedPauseReadAt < self::SHARED_PAUSE_READ_SECONDS) {
+        if ($this->sharedPauseReadIsFresh($now)) {
             return $this->sharedPause;
         }
 
@@ -127,6 +127,13 @@ final class Flusher implements SpanFlushInterface
         }
 
         return $this->sharedPause = is_float($value) ? $value : null;
+    }
+
+    // A clock set back makes the last read stale, not fresh.
+    private function sharedPauseReadIsFresh(float $now): bool
+    {
+        return $this->sharedPauseReadAt !== null && $now >= $this->sharedPauseReadAt
+            && $now - $this->sharedPauseReadAt < self::SHARED_PAUSE_READ_SECONDS;
     }
 
     private function sharePause(float $until): void

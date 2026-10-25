@@ -13,6 +13,7 @@ use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanMapper;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\CreationRecorder;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\OtlpEndSpanProcessor;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\ReportedNames;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\SpanPlacement;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\SpanPlacer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\UnitRecorder;
@@ -47,6 +48,7 @@ use Symfony\Component\Messenger\Event\WorkerMessageReceivedEvent;
 #[UsesClass(UnitRecorder::class)]
 #[UsesClass(SpanPlacer::class)]
 #[UsesClass(SpanPlacement::class)]
+#[UsesClass(ReportedNames::class)]
 #[UsesClass(DatabaseSpan::class)]
 #[UsesClass(AttributeLimit::class)]
 #[UsesClass(SpanMapper::class)]
@@ -134,18 +136,16 @@ final class OtlpEndSpanProcessorTest extends TestCase
         self::assertSame([['level' => 'debug', 'message' => 'Span "{span}" has an invalid trace_parent_span_id; it is exported as a root.', 'context' => ['span' => 'work']]], $this->logger->records);
     }
 
-    public function testSkippedNamesAreRememberedUpToALimit(): void
+    public function testAnInvalidParentIsReportedAgainAfterReset(): void
     {
-        $processor = $this->processor();
-        for ($i = 0; $i <= OtlpEndSpanProcessor::MAX_REPORTED_NAMES; $i++) {
-            $processor->process(new StubSpan('work ' . $i), []);
-        }
+        $placer = new SpanPlacer($this->creations, $this->units, $this->holder, ['request '], $this->logger);
+        $span = $this->created(new StubSpan('work', ['trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'xyz']));
 
-        $processor->process(new StubSpan('work 0'), []);
-        $processor->process(new StubSpan('work ' . OtlpEndSpanProcessor::MAX_REPORTED_NAMES), []);
+        $placer->place($span);
+        $placer->reset();
+        $placer->place($span);
 
-        // The names past the limit are not remembered: the last one is reported again.
-        self::assertCount(OtlpEndSpanProcessor::MAX_REPORTED_NAMES + 2, $this->logger->records);
+        self::assertCount(2, $this->logger->records);
     }
 
     public function testADetachedSpanGetsANewIdUnderTheSpanCurrentAtCreation(): void

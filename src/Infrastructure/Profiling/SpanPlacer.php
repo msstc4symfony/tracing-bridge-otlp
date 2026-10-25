@@ -13,8 +13,10 @@ use Msstc4Symfony\TracingBundle\Application\Port\TraceContextHolderInterface;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceContext;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceParent;
 use OpenTelemetry\API\Trace\SpanKind;
+use Override;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * Finds the ids of an ended profiling span:
@@ -25,7 +27,7 @@ use Psr\Log\NullLogger;
  *
  * @internal
  */
-final class SpanPlacer
+final readonly class SpanPlacer implements ResetInterface
 {
     private const REQUEST_PREFIX = 'request ';
 
@@ -37,22 +39,23 @@ final class SpanPlacer
         self::MESSAGE_PREFIX => SpanKind::KIND_CONSUMER,
     ];
 
-    // Bounds the names remembered in a long-running process.
-    private const MAX_REPORTED_NAMES = 256;
-
-    /** @var array<string, true> span names already reported with an invalid parent */
-    private array $reported = [];
-
     /**
      * @param list<non-empty-string> $unitSpanPrefixes span names that open a unit of work
      */
     public function __construct(
-        private readonly CreationRecorder $creations,
-        private readonly UnitRecorder $units,
-        private readonly TraceContextHolderInterface $holder,
-        private readonly array $unitSpanPrefixes,
-        private readonly LoggerInterface $logger = new NullLogger(),
+        private CreationRecorder $creations,
+        private UnitRecorder $units,
+        private TraceContextHolderInterface $holder,
+        private array $unitSpanPrefixes,
+        private LoggerInterface $logger = new NullLogger(),
+        private ReportedNames $invalidParents = new ReportedNames(),
     ) {
+    }
+
+    #[Override]
+    public function reset(): void
+    {
+        $this->invalidParents->reset();
     }
 
     /**
@@ -95,8 +98,8 @@ final class SpanPlacer
         if ($spanId !== null) {
             $givenParent = $context[TraceSpanKeys::PARENT_SPAN_ID] ?? null;
             $parent = $this->spanId($givenParent);
-            if ($givenParent !== null && $parent === null) {
-                $this->reportInvalidParent($span->getMessage());
+            if ($givenParent !== null && $parent === null && $this->invalidParents->first($span->getMessage())) {
+                $this->logger->debug('Span "{span}" has an invalid trace_parent_span_id; it is exported as a root.', ['span' => $span->getMessage()]);
             }
 
             $kind = DatabaseSpan::connection($context) !== null ? SpanKind::KIND_CLIENT : SpanKind::KIND_INTERNAL;
@@ -109,19 +112,6 @@ final class SpanPlacer
         }
 
         return null;
-    }
-
-    private function reportInvalidParent(string $name): void
-    {
-        if (isset($this->reported[$name])) {
-            return;
-        }
-
-        if (count($this->reported) < self::MAX_REPORTED_NAMES) {
-            $this->reported[$name] = true;
-        }
-
-        $this->logger->debug('Span "{span}" has an invalid trace_parent_span_id; it is exported as a root.', ['span' => $name]);
     }
 
     private function unitPrefix(string $name): ?string

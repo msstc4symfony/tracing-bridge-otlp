@@ -20,6 +20,7 @@ use Override;
 use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
+use ReflectionClass;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\NullOutput;
@@ -166,12 +167,15 @@ final class KernelExportTest extends TestCase
 
     public function testTheAttributeLimitIsReadWhenTheContainerRuns(): void
     {
-        $this->boot()->shutdown();
+        $compiled = $this->compiledContainerFile($this->boot());
+        $this->kernel?->shutdown();
+        $compiledAt = filemtime($compiled);
         putenv('OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT=3');
 
         try {
             // The compiled container of the first boot, so a limit compiled into it would show.
             $kernel = $this->boot();
+            self::assertSame($compiledAt, filemtime($this->compiledContainerFile($kernel)), 'The container was compiled again.');
             $profiling = $this->testContainer()->get(ProfilingFactoryInterface::class);
             self::assertInstanceOf(ProfilingFactoryInterface::class, $profiling);
             $request = Request::create('/traced');
@@ -201,6 +205,14 @@ final class KernelExportTest extends TestCase
         $this->kernel->boot();
 
         return $this->kernel;
+    }
+
+    private function compiledContainerFile(TestKernel $kernel): string
+    {
+        $file = (new ReflectionClass($kernel->getContainer()))->getFileName();
+        self::assertIsString($file);
+
+        return $file;
     }
 
     private function testContainer(): ContainerInterface
