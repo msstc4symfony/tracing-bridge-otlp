@@ -1,0 +1,39 @@
+# Files and directories below are excluded from `composer install` of
+# tagged releases (Packagist downloads = `git archive` of the tag).
+# Keep this in sync with what a published bundle does NOT need at runtime.
+
+/.claude               export-ignore
+/.editorconfig         export-ignore
+/.github               export-ignore
+/bin                   export-ignore
+/.gitattributes        export-ignore
+/.gitignore            export-ignore
+/.idea                 export-ignore
+/.php-cs-fixer.cache   export-ignore
+/.php-cs-fixer.dist.php export-ignore
+/.phpunit.cache        export-ignore
+/.deptrac.cache        export-ignore
+/CHANGELOG.md          export-ignore
+/CLAUDE.md             export-ignore
+/Makefile              export-ignore
+/SECURITY.md           export-ignore
+/codecov.yml           export-ignore
+/composer-ci.json      export-ignore
+/composer-ci.lock      export-ignore
+/coverage              export-ignore
+/deptrac.yaml          export-ignore
+/infection.json5       export-ignore
+/phpstan-baseline.neon export-ignore
+/phpstan-ci.neon       export-ignore
+/phpstan.dist.neon     export-ignore
+/phpunit.xml.dist      export-ignore
+/rector.php            export-ignore
+/tests                 export-ignore
+
+# Enforce LF in archive so downstream installs are deterministic.
+*.php  text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.neon text eol=lf
+*.md   text eol=lf

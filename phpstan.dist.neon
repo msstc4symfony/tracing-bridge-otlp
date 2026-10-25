@@ -1,0 +1,14 @@
+parameters:
+    level: 10
+    editorUrl: 'phpstorm://open?file=%%file%%&line=%%line%%'
+    treatPhpDocTypesAsCertain: false
+    checkMissingOverrideMethodAttribute: true
+    phpVersion:
+        min: 80200
+        max: 80599
+    paths:
+        - src/
+        - tests/
+
+includes:
+    - phpstan-baseline.neon

@@ -1,0 +1,83 @@
+name: Code Quality Checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - LICENSE
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+      - LICENSE
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  standard:
+    uses: msstc4symfony/bundle-standard/.github/workflows/php-bundle.yml@v3.2.0
+    with:
+      slug: msstc4symfony/skeleton-bundle
+      # Measured MSI 100 % / covered 100 % on 2026-10-14 UTC, minus a margin for noise.
+      infection-min-msi: 97
+      infection-min-covered-msi: 97
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # init:start
+  init-smoke:
+    name: Generate a bundle with bin/init and run the full gate on it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: template
+
+      - name: Read the standard tag pinned by this template
+        id: standard
+        run: |
+          ref=$(grep -oP 'php-bundle\.yml@\K\S+' template/.github/workflows/checks.yml) && test -n "$ref" || { echo "No php-bundle.yml ref found in checks.yml" >&2; exit 1; }
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        with:
+          repository: msstc4symfony/bundle-standard
+          ref: ${{ steps.standard.outputs.ref }}
+          path: standard
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, xml, ctype, iconv, intl
+          coverage: none
+          tools: composer:v2
+
+      - name: Generate the Sample bundle
+        run: |
+          mkdir generated
+          git -C template ls-files -z | (cd template && xargs -0 cp --parents -t ../generated)
+          cd generated
+          git init -q && git add -A && git -c user.name=ci -c user.email=ci@localhost commit -qm template
+          php bin/init Sample "Smoke test bundle"
+
+      - name: Run the quality gate on the generated bundle
+        working-directory: generated
+        env:
+          COMPOSER: composer-ci.json
+        run: |
+          composer install --prefer-dist --no-progress --no-interaction
+          make check
+          make test
+
+      - name: Verify the generated bundle against the standard
+        run: |
+          (cd standard && COMPOSER=composer.json composer install --no-dev --prefer-dist --no-progress --no-interaction)
+          php standard/bin/verify-standard.php generated
+  # init:end

@@ -1,0 +1,14 @@
+# PHPStan config for CI runs against composer-ci.json (all optional deps installed).
+#
+# A local install of composer.json may lack optional libraries, so phpstan-baseline.neon may
+# carry class.notFound entries for them. In CI those classes resolve, the patterns no longer
+# match, and the default strict gate would fail with "Ignored pattern was not matched".
+#
+# Setting reportUnmatchedIgnoredErrors=false here tolerates that drift WITHOUT relaxing
+# the actual check: any NEW finding (real bug introduced in code under review) still
+# fails the build — only unmatched baseline entries are silently skipped.
+includes:
+    - phpstan.dist.neon
+
+parameters:
+    reportUnmatchedIgnoredErrors: false

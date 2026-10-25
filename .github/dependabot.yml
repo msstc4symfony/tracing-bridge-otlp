@@ -1,0 +1,51 @@
+version: 2
+updates:
+  # Composer manifests. Both `composer.json` (published) and `composer-ci.json`
+  # (full dev toolchain) live at the repo root, so a single ecosystem entry
+  # covers them.
+  - package-ecosystem: composer
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - php
+    commit-message:
+      prefix: composer
+      include: scope
+    groups:
+      symfony:
+        patterns:
+          - "symfony/*"
+      phpstan:
+        patterns:
+          - "phpstan/*"
+      dev-tools:
+        patterns:
+          - "friendsofphp/php-cs-fixer"
+          - "rector/rector"
+          - "infection/infection"
+          - "deptrac/deptrac"
+          - "roave/backward-compatibility-check"
+
+  # GitHub Actions in .github/workflows/*, including the bundle-standard reusable
+  # workflow tag: a new standard release that changes templates fails verify-standard
+  # on that PR, which is the signal to resync the template files.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: ci
+      include: scope

@@ -1,0 +1,76 @@
+# Canonical layers of bundle-standard v3 (templates/deptrac.yaml); verify-standard compares them after parsing.
+# The ruleset may be narrowed, never widened.
+deptrac:
+    paths:
+        - ./src
+
+    layers:
+        - name: Domain
+          collectors:
+              - type: directory
+                value: src/Domain/(Entity|Document|ValueObject|Enum|Event|Repository|DocumentRepository)/.*
+
+        - name: DomainService
+          collectors:
+              - type: directory
+                value: src/Domain/(Service|Helper|Specification)/.*
+
+        - name: Application
+          collectors:
+              - type: directory
+                value: src/Application/.*
+
+        - name: Infrastructure
+          collectors:
+              - type: directory
+                value: src/Infrastructure/.*
+
+        - name: Presentation
+          collectors:
+              - type: directory
+                value: src/Presentation/.*
+
+        - name: Framework
+          collectors:
+              - type: directory
+                value: src/Framework/.*
+
+        - name: DependencyInjection
+          collectors:
+              - type: directory
+                value: src/DependencyInjection/.*
+
+        - name: BundleRoot
+          collectors:
+              - type: classLike
+                value: ^Msstc4Symfony\\SkeletonBundle\\SkeletonBundle$
+
+    ruleset:
+        Domain: ~
+        DomainService:
+            - Domain
+        Application:
+            - Domain
+            - DomainService
+        # Adapters implement Domain repositories and Application ports.
+        Infrastructure:
+            - Domain
+            - Application
+        Presentation:
+            - Domain
+            - Application
+        Framework:
+            - Domain
+            - Application
+        # Compiler passes reference decorator and adapter classes by ::class.
+        DependencyInjection:
+            - Domain
+            - DomainService
+            - Application
+            - Infrastructure
+            - Presentation
+            - Framework
+        # registerForAutoconfiguration() of Application interfaces.
+        BundleRoot:
+            - Application
+            - DependencyInjection

@@ -1,0 +1,60 @@
+{
+  "name": "msstc4symfony/skeleton-bundle",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Maxim Shamaev",
+      "email": "maxim.shamaev@gmail.com"
+    }
+  ],
+  "type": "symfony-bundle",
+  "description": "Starter template for msstc4symfony Symfony bundles",
+  "minimum-stability": "stable",
+  "keywords": [
+    "php",
+    "symfony"
+  ],
+  "prefer-stable": true,
+  "autoload": {
+    "psr-4": {
+      "Msstc4Symfony\\SkeletonBundle\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Msstc4Symfony\\SkeletonBundle\\Test\\": "tests/"
+    }
+  },
+  "require": {
+    "php": ">=8.2",
+    "composer-runtime-api": ">=2.2",
+    "symfony/config": "^7.4|^8.0",
+    "symfony/dependency-injection": "^7.4|^8.0",
+    "symfony/http-kernel": "^7.4|^8.0"
+  },
+  "require-dev": {
+    "friendsofphp/php-cs-fixer": "^3.76",
+    "phpstan/extension-installer": "^1.4",
+    "phpstan/phpstan": "^2.1",
+    "phpstan/phpstan-strict-rules": "^2.0",
+    "phpstan/phpstan-symfony": "^2.0",
+    "phpunit/phpunit": ">=11.0",
+    "rector/rector": "^2.1",
+    "roave/security-advisories": "dev-latest"
+  },
+  "config": {
+    "allow-plugins": {
+      "phpstan/extension-installer": true
+    },
+    "sort-packages": true
+  },
+  "conflict": {
+    "symfony/symfony": "*"
+  },
+  "extra": {
+    "symfony": {
+      "allow-contrib": false,
+      "require": "^7.4|^8.0"
+    }
+  }
+}
