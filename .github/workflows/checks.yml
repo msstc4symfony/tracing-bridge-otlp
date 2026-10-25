@@ -36,7 +36,7 @@ jobs:
     name: Generate a bundle with bin/init and run the full gate on it
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: template
 
@@ -46,7 +46,7 @@ jobs:
           ref=$(grep -oP 'php-bundle\.yml@\K\S+' template/.github/workflows/checks.yml) && test -n "$ref" || { echo "No php-bundle.yml ref found in checks.yml" >&2; exit 1; }
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           repository: msstc4symfony/bundle-standard
           ref: ${{ steps.standard.outputs.ref }}
