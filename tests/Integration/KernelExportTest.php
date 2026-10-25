@@ -6,6 +6,7 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Test\Integration;
 
 use Monolog\LogRecord;
 use Msstc4Symfony\ProfilingBundle\Application\ProfilingFactoryInterface;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Flusher;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CollectingHandler;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\Job;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Integration\Kernel\TestKernel;
@@ -21,7 +22,9 @@ use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use ReflectionClass;
+use ReflectionProperty;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\Filesystem\Filesystem;
@@ -187,6 +190,19 @@ final class KernelExportTest extends TestCase
         }
 
         self::assertSame('abc', ($this->exportedByName()['long'] ?? null)?->getAttributes()->get('profiling.payload'));
+    }
+
+    public function testThePauseIsKeptOutsideTheApplicationsCachePools(): void
+    {
+        $this->boot();
+        $flusher = $this->testContainer()->get(Flusher::class);
+        self::assertInstanceOf(Flusher::class, $flusher);
+
+        $pauses = (new ReflectionProperty(Flusher::class, 'pauses'))->getValue($flusher);
+
+        // cache.app lookups are application metrics (metrics-bundle counts hits and misses per pool).
+        self::assertInstanceOf(FilesystemAdapter::class, $pauses);
+        self::assertNotSame($this->testContainer()->get('cache.app'), $pauses);
     }
 
     public function testDisabledRegistersNoService(): void

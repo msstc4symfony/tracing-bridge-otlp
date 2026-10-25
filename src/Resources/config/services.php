@@ -17,6 +17,7 @@ use Msstc4Symfony\TracingBridgeOtlp\TracingBridgeOtlpBundle;
 use OpenTelemetry\SDK\Common\Instrumentation\InstrumentationScopeInterface;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
+use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 
@@ -48,7 +49,8 @@ return static function (ContainerConfigurator $container): void {
     $services->set(Flusher::class)
         ->arg('$exporterFactory', service_closure($exporter))
         ->arg('$clock', inline_service(NativeClock::class))
-        ->arg('$pauses', service('cache.app')->nullOnInvalid())
+        // Not cache.app: its lookups are application metrics, and every flush would count as one.
+        ->arg('$pauses', inline_service(FilesystemAdapter::class)->args(['', 0, '%kernel.cache_dir%/msstc4symfony_tracing_bridge_otlp']))
         ->tag('monolog.logger', ['channel' => 'otlp'])
     ;
     // Last of the create processors: it must key the span object end processors receive, after every wrapper

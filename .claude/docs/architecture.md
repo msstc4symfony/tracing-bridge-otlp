@@ -41,7 +41,7 @@ Infrastructure ↛ Framework/Presentation и наоборот, поэтому: `
 ## DI
 
 `services.php`: `msstc4symfony_tracing_bridge_otlp.exporter` (factory `ExporterFactory::create`), `SpanMapper` со scope
-и resource (inline-фабрики `ResourceFactory`), `Flusher` с `service_closure(exporter)`, inline `NativeClock`, `cache.app` (nullOnInvalid) для общей паузы,
+и resource (inline-фабрики `ResourceFactory`), `Flusher` с `service_closure(exporter)`, inline `NativeClock`, inline `FilesystemAdapter` в `%kernel.cache_dir%/msstc4symfony_tracing_bridge_otlp` для общей паузы (не `cache.app`),
 лог-канал `otlp` (тег `monolog.logger`, и у процессора); `SpanPlacer` с `unit_span_prefixes` (тег `monolog.logger` otlp, debug о невалидном parent — раз на имя за единицу работы через `ReportedNames`, ≤ 256, как у процессора);
 `CreationRecorder` с `autoconfigure(false)` + тег `CreateSpanProcessorInterface` priority -65536 (без `kernel.reset`);
 остальное autoconfigure (end processor, subscribers, `ResetInterface` → `kernel.reset`). `enabled: false` — ни одного

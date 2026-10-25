@@ -54,7 +54,7 @@
 ## Ревью 1.0.0 (2026-10-25 UTC)
 
 - **Пауза только в процессе бесполезна под PHP-FPM/cron**: каждый запрос ждал бы `timeout_ms`. `Flusher` делит паузу
-  через `cache.app` (PSR-6, `nullOnInvalid`), ключ `msstc4symfony_tracing_bridge_otlp.paused_until`, ошибки кэша
+  через `FilesystemAdapter` в `%kernel.cache_dir%/msstc4symfony_tracing_bridge_otlp` (1.0.1; в 1.0.0 был `cache.app`), ключ `msstc4symfony_tracing_bridge_otlp.paused_until`, ошибки кэша
   глотаются (пауза остаётся процессной). Счётчик потерянных — по процессу.
 - **Имя спана не в UTF-8 роняет весь batch** (`SpanConverter::setName` бросает «Expect utf-8 encoding»): `SpanMapper`
   заменяет байты ≥ 0x80 на `?`, если строка не UTF-8. Значения атрибутов не в UTF-8 проходят как bytes.
@@ -78,7 +78,7 @@
   порядка (`ENV_BRIDGE_FIRST`).
 - **Unit-спан, закрытый profiling в `kernel.reset`** (единица не закрыла свой спан), берёт `holder->current()`; если
   TracingBundle сбросился раньше, спан попадёт в новую трассу. Редко; не исправлено.
-- **Общая пауза читается из `cache.app` не чаще раза в секунду** (`SHARED_PAUSE_READ_SECONDS`) в долгоживущем процессе
+- **Общая пауза читается из кэша не чаще раза в секунду** (`SHARED_PAUSE_READ_SECONDS`) в долгоживущем процессе
   (воркер, RoadRunner/FrankenPHP); запрос PHP-FPM читает её один раз (состояние объекта не переживает запрос). Часы,
   переведённые назад, не блокируют чтение (`$now >= readAt`).
 - **Сертификаты** (`*_CERTIFICATE`, `*_CLIENT_CERTIFICATE`, `*_CLIENT_KEY`; SDK объявляет только первые) читаются
@@ -86,3 +86,7 @@
   идут в опции HttpClient (`cafile`, `local_cert`, `local_pk`) — `PsrTransportFactory` их игнорирует; для gRPC —
   аргументами `create()`.
 - **Ключ атрибута не в UTF-8** роняет конвертер так же, как имя: такие ключи отбрасываются.
+- **Не `cache.app` для паузы (1.0.1, 2026-10-25 UTC)**: metrics-bundle считает обращения к пулам приложения
+  (`symfony_cache_request{pool="cache.app"}`), и каждый flush давал лишний miss — e2e showcase
+  (`metrics.feature:43`, miss 16 → 18 вместо +1) поймал. Теперь свой `FilesystemAdapter` вне пулов приложения: общий
+  на хост (FPM, cron, воркеры), не между хостами; нет прав на запись — пауза процессная.

@@ -44,7 +44,7 @@ final class Flusher implements SpanFlushInterface
     /**
      * @param Closure(): SpanExporterInterface $exporterFactory called on the first export: a misconfigured endpoint or
      *                                                          protocol then fails like an export, not the application
-     * @param CacheItemPoolInterface|null $pauses shares the pause with the other processes (PHP-FPM, cron commands);
+     * @param CacheItemPoolInterface|null $pauses shares the pause with the other processes of the host (PHP-FPM, cron);
      *                                            null: the pause holds for this process only
      */
     public function __construct(
