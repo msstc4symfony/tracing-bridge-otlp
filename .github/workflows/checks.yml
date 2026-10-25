@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   standard:
-    uses: msstc4symfony/bundle-standard/.github/workflows/php-bundle.yml@v3.2.0
+    uses: msstc4symfony/bundle-standard/.github/workflows/php-bundle.yml@v3.3.0
     with:
       slug: msstc4symfony/tracing-bridge-otlp
       # Measured MSI 98 % / covered 98 % on 2026-10-25 UTC (3 equivalent mutants), minus a margin for noise.
