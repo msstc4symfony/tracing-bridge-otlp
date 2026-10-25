@@ -149,6 +149,11 @@ final readonly class SpanMapper
      */
     private function cut(string $value): string
     {
+        // A string has no more characters than bytes: a short one needs no scan.
+        if (strlen($value) <= $this->valueLengthLimit) {
+            return $value;
+        }
+
         return $this->isUtf8($value) ? mb_substr($value, 0, $this->valueLengthLimit, 'UTF-8') : substr($value, 0, $this->valueLengthLimit);
     }
 

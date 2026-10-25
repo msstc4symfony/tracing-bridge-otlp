@@ -126,9 +126,10 @@ final class OtlpEndSpanProcessorTest extends TestCase
 
     public function testAnInvalidTraceParentSpanIdIsReported(): void
     {
-        $span = $this->created(new StubSpan('work', ['trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'xyz']));
+        $processor = $this->processor();
 
-        $this->processor()->process($span, []);
+        $processor->process($this->created(new StubSpan('work', ['trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'xyz'])), []);
+        $processor->process($this->created(new StubSpan('work', ['trace_span_id' => 'b7ad6b7169203332', 'trace_parent_span_id' => 'xyz'])), []);
 
         self::assertSame([['level' => 'debug', 'message' => 'Span "{span}" has an invalid trace_parent_span_id; it is exported as a root.', 'context' => ['span' => 'work']]], $this->logger->records);
     }

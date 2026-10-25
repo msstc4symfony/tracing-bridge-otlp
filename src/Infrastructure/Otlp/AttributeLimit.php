@@ -25,7 +25,7 @@ final class AttributeLimit
     }
 
     /**
-     * @return positive-int bytes
+     * @return positive-int characters (bytes for a string that is not UTF-8)
      */
     public static function valueLength(): int
     {

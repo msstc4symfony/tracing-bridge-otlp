@@ -48,7 +48,8 @@
 - **Локально `composer update` падает на roave/security-advisories** (PHP 8.4.17 < 8.4.27) — `--ignore-platform-req=php`.
 - **Эквивалентные мутанты** (covered MSI 97 % после ревью): `(string)` ключа заголовка и результата `preg_replace`,
   `reported[$name] = false` (isset), `0.0` → `1.0` в `max()` паузы (сравнение с текущим временем), ранний
-  `return null` в `Flusher::sharedPause()` (ошибку без пула ловит `catch`).
+  `return null` в `Flusher::sharedPause()` (ошибку без пула ловит `catch`), быстрый путь `strlen <= limit` в
+  `SpanMapper::cut()` (`<=` → `<` и его удаление дают тот же результат, только медленнее).
 
 ## Ревью 1.0.0 (2026-10-25 UTC)
 
@@ -68,9 +69,6 @@
 - **`SpanBuffer` не очищается на `kernel.reset`**: спаны, которые profiling закрывает в `reset()`, приходят после
   flush (−512 < −1024 не помогает — порядок сервисов в resetter не гарантирован) и уходят со следующим экспортом.
   Расхождение со спеком §3.5 («очищается на reset») — сознательное: id спана самодостаточны.
-- **Сертификаты**: SDK знает только `*_CERTIFICATE`; `*_CLIENT_CERTIFICATE`/`*_CLIENT_KEY` читаются из окружения
-  напрямую; для HTTP они идут в опции HttpClient (`cafile`, `local_cert`, `local_pk`) — `PsrTransportFactory` их
-  игнорирует.
 - **Протокол/сжатие из переменных** вне `http/protobuf|http/json|grpc` / `none|gzip` → `LogicException` при первом
   экспорте (как экспорт: warning + пауза).
 - **`CreationRecorder` на приоритете −65536**: должен ключевать итоговую обёртку спана после всех create-процессоров.
@@ -80,8 +78,11 @@
   порядка (`ENV_BRIDGE_FIRST`).
 - **Unit-спан, закрытый profiling в `kernel.reset`** (единица не закрыла свой спан), берёт `holder->current()`; если
   TracingBundle сбросился раньше, спан попадёт в новую трассу. Редко; не исправлено.
-- **Общая пауза читается из `cache.app` не чаще раза в секунду** (`SHARED_PAUSE_READ_SECONDS`): с Redis иначе лишний
-  запрос на каждую единицу работы.
-- **Сертификаты** читаются через резолверы SDK (`Configuration::has/getString` принимает любые имена): окружение
-  важнее `$_SERVER`.
+- **Общая пауза читается из `cache.app` не чаще раза в секунду** (`SHARED_PAUSE_READ_SECONDS`) в долгоживущем процессе
+  (воркер, RoadRunner/FrankenPHP); запрос PHP-FPM читает её один раз (состояние объекта не переживает запрос). Часы,
+  переведённые назад, не блокируют чтение (`$now >= readAt`).
+- **Сертификаты** (`*_CERTIFICATE`, `*_CLIENT_CERTIFICATE`, `*_CLIENT_KEY`; SDK объявляет только первые) читаются
+  через резолверы SDK (`Configuration::has/getString` принимает любые имена): окружение важнее `$_SERVER`. Для HTTP они
+  идут в опции HttpClient (`cafile`, `local_cert`, `local_pk`) — `PsrTransportFactory` их игнорирует; для gRPC —
+  аргументами `create()`.
 - **Ключ атрибута не в UTF-8** роняет конвертер так же, как имя: такие ключи отбрасываются.

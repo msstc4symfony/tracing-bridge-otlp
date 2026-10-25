@@ -164,6 +164,27 @@ final class KernelExportTest extends TestCase
         self::assertSame($firstTrace, ($this->exportedByName()['left open'] ?? null)?->getTraceId());
     }
 
+    public function testTheAttributeLimitIsReadWhenTheContainerRuns(): void
+    {
+        $this->boot()->shutdown();
+        putenv('OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT=3');
+
+        try {
+            // The compiled container of the first boot, so a limit compiled into it would show.
+            $kernel = $this->boot();
+            $profiling = $this->testContainer()->get(ProfilingFactoryInterface::class);
+            self::assertInstanceOf(ProfilingFactoryInterface::class, $profiling);
+            $request = Request::create('/traced');
+            $response = $kernel->handle($request);
+            $profiling->endSpan($profiling->createSpan('long', ['payload' => 'abcdef']));
+            $kernel->terminate($request, $response);
+        } finally {
+            putenv('OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT');
+        }
+
+        self::assertSame('abc', ($this->exportedByName()['long'] ?? null)?->getAttributes()->get('profiling.payload'));
+    }
+
     public function testDisabledRegistersNoService(): void
     {
         $kernel = $this->boot(TestKernel::ENV_DISABLED);

@@ -178,6 +178,12 @@ final class FlusherTest extends TestCase
         $this->fill(1);
         $flusher->flush();
         self::assertSame(2, $pauses->reads);
+
+        // A clock set back must not stop the reads until it catches up.
+        $this->clock->modify('-1 hour');
+        $this->fill(1);
+        $flusher->flush();
+        self::assertSame(3, $pauses->reads);
     }
 
     public function testABrokenCacheLeavesThePauseToTheProcess(): void

@@ -85,8 +85,9 @@ The export never throws into the application. A failed export (receiver down, ti
 batch, a wrong endpoint or protocol) logs one `warning` on the `otlp` channel with the number of dropped spans, and
 exporting pauses for 30 seconds: the spans of that time are dropped and counted in the next log record (`info` when
 exporting resumes). There are no retries. The pause is shared through the `cache.app` pool, so PHP-FPM children and
-cron commands wait too (each process reads the pool at most once a second); without that pool it holds per process. The cost of a down receiver is at most `timeout_ms`
-once per pause and process sharing the cache.
+cron commands wait too: a PHP-FPM request reads the pool once, a long-running worker at most once a second. Without
+that pool the pause holds per process. The cost of a down receiver is at most `timeout_ms` once per pause and process
+sharing the cache.
 
 The exporter has its own HTTP client: the application's `http_client` is traced and profiled, so the export would trace
 itself. Install `ext-curl`: the native HTTP client resolves host names without a timeout.

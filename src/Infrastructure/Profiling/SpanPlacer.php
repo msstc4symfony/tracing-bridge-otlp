@@ -25,7 +25,7 @@ use Psr\Log\NullLogger;
  *
  * @internal
  */
-final readonly class SpanPlacer
+final class SpanPlacer
 {
     private const REQUEST_PREFIX = 'request ';
 
@@ -37,15 +37,21 @@ final readonly class SpanPlacer
         self::MESSAGE_PREFIX => SpanKind::KIND_CONSUMER,
     ];
 
+    // Bounds the names remembered in a long-running process.
+    private const MAX_REPORTED_NAMES = 256;
+
+    /** @var array<string, true> span names already reported with an invalid parent */
+    private array $reported = [];
+
     /**
      * @param list<non-empty-string> $unitSpanPrefixes span names that open a unit of work
      */
     public function __construct(
-        private CreationRecorder $creations,
-        private UnitRecorder $units,
-        private TraceContextHolderInterface $holder,
-        private array $unitSpanPrefixes,
-        private LoggerInterface $logger = new NullLogger(),
+        private readonly CreationRecorder $creations,
+        private readonly UnitRecorder $units,
+        private readonly TraceContextHolderInterface $holder,
+        private readonly array $unitSpanPrefixes,
+        private readonly LoggerInterface $logger = new NullLogger(),
     ) {
     }
 
@@ -90,7 +96,7 @@ final readonly class SpanPlacer
             $givenParent = $context[TraceSpanKeys::PARENT_SPAN_ID] ?? null;
             $parent = $this->spanId($givenParent);
             if ($givenParent !== null && $parent === null) {
-                $this->logger->debug('Span "{span}" has an invalid trace_parent_span_id; it is exported as a root.', ['span' => $span->getMessage()]);
+                $this->reportInvalidParent($span->getMessage());
             }
 
             $kind = DatabaseSpan::connection($context) !== null ? SpanKind::KIND_CLIENT : SpanKind::KIND_INTERNAL;
@@ -103,6 +109,19 @@ final readonly class SpanPlacer
         }
 
         return null;
+    }
+
+    private function reportInvalidParent(string $name): void
+    {
+        if (isset($this->reported[$name])) {
+            return;
+        }
+
+        if (count($this->reported) < self::MAX_REPORTED_NAMES) {
+            $this->reported[$name] = true;
+        }
+
+        $this->logger->debug('Span "{span}" has an invalid trace_parent_span_id; it is exported as a root.', ['span' => $name]);
     }
 
     private function unitPrefix(string $name): ?string

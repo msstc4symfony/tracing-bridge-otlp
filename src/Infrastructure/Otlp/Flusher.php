@@ -23,7 +23,8 @@ final class Flusher implements SpanFlushInterface
 {
     public const PAUSE_SECONDS = 30;
 
-    // A pause another process starts is seen within this delay; the cache is not read on every unit of work.
+    // A long-running process (worker) sees a pause another process starts within this delay, without reading the cache
+    // on every unit of work; a PHP-FPM request reads it once.
     public const SHARED_PAUSE_READ_SECONDS = 1;
 
     private const PAUSE_KEY = 'msstc4symfony_tracing_bridge_otlp.paused_until';
@@ -114,7 +115,7 @@ final class Flusher implements SpanFlushInterface
         }
 
         $now = $this->now();
-        if ($this->sharedPauseReadAt !== null && $now - $this->sharedPauseReadAt < self::SHARED_PAUSE_READ_SECONDS) {
+        if ($this->sharedPauseReadAt !== null && $now >= $this->sharedPauseReadAt && $now - $this->sharedPauseReadAt < self::SHARED_PAUSE_READ_SECONDS) {
             return $this->sharedPause;
         }
 
