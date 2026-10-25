@@ -1,0 +1,268 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Profiling;
+
+use Msstc4Symfony\TracingBridgeOtlp\Application\Port\SpanFlushInterface;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanBuffer;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanMapper;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\CreationRecorder;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\OtlpEndSpanProcessor;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\UnitRecorder;
+use Msstc4Symfony\TracingBridgeOtlp\Test\Support\StubSpan;
+use Msstc4Symfony\TracingBundle\Domain\ValueObject\Baggage;
+use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceContext;
+use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceParent;
+use Msstc4Symfony\TracingBundle\Infrastructure\Context\InMemoryTraceContextHolder;
+use OpenTelemetry\API\Trace\SpanKind;
+use OpenTelemetry\SDK\Common\Attribute\Attributes;
+use OpenTelemetry\SDK\Common\Instrumentation\InstrumentationScope;
+use OpenTelemetry\SDK\Resource\ResourceInfo;
+use OpenTelemetry\SDK\Trace\SpanDataInterface;
+use Override;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\UsesClass;
+use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
+use stdClass;
+use Symfony\Component\EventDispatcher\EventDispatcher;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Event\ResponseEvent;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Symfony\Component\HttpKernel\KernelEvents;
+use Symfony\Component\Messenger\Envelope;
+use Symfony\Component\Messenger\Event\WorkerMessageHandledEvent;
+use Symfony\Component\Messenger\Event\WorkerMessageReceivedEvent;
+
+#[CoversClass(OtlpEndSpanProcessor::class)]
+#[UsesClass(CreationRecorder::class)]
+#[UsesClass(UnitRecorder::class)]
+#[UsesClass(SpanMapper::class)]
+#[UsesClass(SpanBuffer::class)]
+#[UsesClass(SpanIds::class)]
+#[UsesClass(ExportedSpan::class)]
+final class OtlpEndSpanProcessorTest extends TestCase
+{
+    private const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';
+
+    private const CALLER_SPAN = '00f067aa0ba902b7';
+
+    private InMemoryTraceContextHolder $holder;
+
+    private CreationRecorder $creations;
+
+    private UnitRecorder $units;
+
+    private SpanBuffer $buffer;
+
+    private int $flushes = 0;
+
+    #[Override]
+    protected function setUp(): void
+    {
+        $this->holder = new InMemoryTraceContextHolder();
+        $this->creations = new CreationRecorder($this->holder);
+        $this->units = new UnitRecorder($this->holder);
+        $this->buffer = new SpanBuffer(10);
+    }
+
+    public function testABridgeSpanUsesItsTraceSpanIdsAndTheTraceIdAtCreation(): void
+    {
+        $this->holder->replace($this->continued('01'));
+        $span = $this->created(new StubSpan('work', ['trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'a3ce929d0e0e4736']));
+        $this->holder->reset();
+
+        $this->processor()->process($span, []);
+
+        $exported = $this->single();
+        self::assertSame(self::TRACE_ID, $exported->getTraceId());
+        self::assertSame('b7ad6b7169203331', $exported->getSpanId());
+        self::assertSame('a3ce929d0e0e4736', $exported->getParentSpanId());
+        self::assertFalse($exported->getParentContext()->isRemote());
+        self::assertSame(SpanKind::KIND_INTERNAL, $exported->getKind());
+    }
+
+    public function testADbalSpanIsAClient(): void
+    {
+        $span = $this->created(new StubSpan('SELECT 1', ['connection' => 'default', 'trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'a3ce929d0e0e4736']));
+
+        $this->processor()->process($span, []);
+
+        self::assertSame(SpanKind::KIND_CLIENT, $this->single()->getKind());
+    }
+
+    public function testADetachedSpanGetsANewIdUnderTheSpanCurrentAtCreation(): void
+    {
+        $this->holder->replace($this->continued('01'));
+        $current = $this->holder->current()->traceParent->spanId;
+        $span = $this->created(new StubSpan('GET /remote', ['profiling_detached' => true, 'profiling_automatic' => true]));
+
+        $this->processor()->process($span, ['status' => 200]);
+
+        $exported = $this->single();
+        self::assertSame(SpanKind::KIND_CLIENT, $exported->getKind());
+        self::assertSame(self::TRACE_ID, $exported->getTraceId());
+        self::assertSame($current, $exported->getParentSpanId());
+        self::assertTrue(TraceParent::isSpanId($exported->getSpanId()));
+        self::assertNotSame($current, $exported->getSpanId());
+    }
+
+    public function testARequestSpanIsTheUnitSpanWithItsRemoteParentAndResponseStatus(): void
+    {
+        $this->holder->replace($this->continued('01'));
+        $dispatcher = new EventDispatcher();
+        $dispatcher->addSubscriber($this->units);
+        $dispatcher->dispatch(new ResponseEvent(self::createStub(HttpKernelInterface::class), new Request(), HttpKernelInterface::MAIN_REQUEST, new Response('', Response::HTTP_SERVICE_UNAVAILABLE)), KernelEvents::RESPONSE);
+
+        $this->processor()->process(new StubSpan('request orders_create'), []);
+
+        $exported = $this->single();
+        self::assertSame(SpanKind::KIND_SERVER, $exported->getKind());
+        self::assertSame($this->holder->current()->traceParent->spanId, $exported->getSpanId());
+        self::assertSame(self::CALLER_SPAN, $exported->getParentSpanId());
+        self::assertTrue($exported->getParentContext()->isRemote());
+        self::assertSame(503, $exported->getAttributes()->get('http.response.status_code'));
+    }
+
+    public function testAUnitSpanOfANewTraceIsARoot(): void
+    {
+        $this->processor()->process(new StubSpan('cli command app:job'), []);
+
+        $exported = $this->single();
+        self::assertSame(SpanKind::KIND_INTERNAL, $exported->getKind());
+        self::assertFalse($exported->getParentContext()->isValid());
+    }
+
+    public function testAMessageSpanUsesTheRecordedMessageTrace(): void
+    {
+        $dispatcher = new EventDispatcher();
+        $dispatcher->addSubscriber($this->units);
+        $dispatcher->dispatch(new WorkerMessageReceivedEvent(new Envelope(new stdClass()), 'async'));
+
+        $messageTrace = $this->continued('01');
+        $this->holder->replace($messageTrace);
+        $dispatcher->dispatch(new WorkerMessageHandledEvent(new Envelope(new stdClass()), 'async'));
+        $this->holder->reset();
+
+        $this->processor()->process(new StubSpan('message App\Job'), []);
+
+        $exported = $this->single();
+        self::assertSame(SpanKind::KIND_CONSUMER, $exported->getKind());
+        self::assertSame($messageTrace->traceParent->spanId, $exported->getSpanId());
+        self::assertSame(self::TRACE_ID, $exported->getTraceId());
+        self::assertNull($this->units->messageTrace());
+    }
+
+    public function testAMessageSpanWithoutARecordedTraceUsesTheCurrentOne(): void
+    {
+        $this->processor()->process(new StubSpan('message App\Job'), []);
+
+        self::assertSame($this->holder->current()->traceParent->spanId, $this->single()->getSpanId());
+    }
+
+    public function testAnActionSpanUsesTheTraceCurrentAtItsEnd(): void
+    {
+        $action = $this->continued('01')->withChildSpan();
+        $this->holder->replace($action);
+
+        $this->processor()->process(new StubSpan('action App\Pay'), []);
+
+        $exported = $this->single();
+        self::assertSame($action->traceParent->spanId, $exported->getSpanId());
+        self::assertSame($action->parentSpanId, $exported->getParentSpanId());
+        self::assertFalse($exported->getParentContext()->isRemote());
+    }
+
+    public function testAnUnsampledTraceIsNotExported(): void
+    {
+        $this->holder->replace($this->continued('00'));
+        $span = $this->created(new StubSpan('work', ['trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'a3ce929d0e0e4736']));
+
+        $this->processor()->process($span, []);
+        $this->processor()->process(new StubSpan('request x'), []);
+
+        self::assertSame([], $this->buffer->drain());
+    }
+
+    public function testASpanWithoutCreationRecordIsSkipped(): void
+    {
+        $this->processor()->process(new StubSpan('work', ['trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'a3ce929d0e0e4736']), []);
+        $this->processor()->process(new StubSpan('GET /remote', ['profiling_detached' => true]), []);
+
+        self::assertSame([], $this->buffer->drain());
+    }
+
+    public function testASpanNeitherUnitNorTracedIsSkipped(): void
+    {
+        $this->processor()->process($this->created(new StubSpan('work')), []);
+        $this->processor()->process($this->created(new StubSpan('work', ['trace_span_id' => 'not-a-span-id'])), []);
+
+        self::assertSame([], $this->buffer->drain());
+    }
+
+    public function testAFullBufferIsFlushed(): void
+    {
+        $this->buffer = new SpanBuffer(2);
+        $processor = $this->processor();
+
+        $processor->process(new StubSpan('request x'), []);
+        self::assertSame(0, $this->flushes);
+        $processor->process(new StubSpan('request x'), []);
+
+        self::assertSame(1, $this->flushes);
+    }
+
+    private function processor(): OtlpEndSpanProcessor
+    {
+        $flush = new class($this->flushes) implements SpanFlushInterface {
+            public function __construct(
+                private int &$flushes,
+            ) {
+            }
+
+            #[Override]
+            public function flush(): void
+            {
+                $this->flushes++;
+            }
+        };
+
+        return new OtlpEndSpanProcessor(
+            $this->creations,
+            $this->units,
+            $this->holder,
+            new SpanMapper(new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([]))),
+            $this->buffer,
+            $flush,
+            new NullLogger(),
+            ['request ', 'cli command ', 'message ', 'action '],
+        );
+    }
+
+    private function created(StubSpan $span): StubSpan
+    {
+        $this->creations->process($span);
+
+        return $span;
+    }
+
+    private function continued(string $flags): TraceContext
+    {
+        $received = TraceParent::fromHeader('00-' . self::TRACE_ID . '-' . self::CALLER_SPAN . '-' . $flags);
+        self::assertNotNull($received);
+
+        return TraceContext::start()->continuing($received, null, Baggage::empty());
+    }
+
+    private function single(): SpanDataInterface
+    {
+        $spans = $this->buffer->drain();
+        self::assertCount(1, $spans);
+
+        return $spans[0];
+    }
+}
