@@ -42,16 +42,6 @@ final class SpanBufferTest extends TestCase
         self::assertFalse($buffer->add(self::span()));
     }
 
-    public function testResetDropsBufferedSpans(): void
-    {
-        $buffer = new SpanBuffer(5);
-        $buffer->add(self::span());
-
-        $buffer->reset();
-
-        self::assertSame([], $buffer->drain());
-    }
-
     public static function span(): ExportedSpan
     {
         return new ExportedSpan('x', SpanKind::KIND_INTERNAL, new SpanIds('4bf92f3577b34da6a3ce929d0e0e4736', 'b7ad6b7169203331', null, false, 1), StatusData::unset(), 1, 2, [], new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([])));

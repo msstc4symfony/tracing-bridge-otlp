@@ -21,14 +21,15 @@ Develop against the CI profile: `COMPOSER=composer-ci.json composer install` (lo
 
 ## Architecture in 60 seconds
 
-- `Infrastructure\Profiling\CreationRecorder` — profiling create processor (priority -1024, after
-  tracing-bridge-profiling): `WeakMap` span → trace current at creation.
+- `Infrastructure\Profiling\CreationRecorder` — profiling create processor (priority -65536, after every wrapper):
+  `WeakMap` span → trace current at creation.
 - `Infrastructure\Profiling\UnitRecorder` — subscriber: trace of a consumed message (captured at 4096 on the first
   worker event after handling) and the main response status.
-- `Infrastructure\Profiling\OtlpEndSpanProcessor` — end processor: unit span / traced span / detached span → `SpanIds`,
-  sampled only → `SpanMapper` → `SpanBuffer`; full buffer → `Application\Port\SpanFlushInterface`.
-- `Infrastructure\Otlp\Flusher` (implements the port) — one export per unit, 30 s pause after a failure, exporter built
-  lazily through a `service_closure`. `Presentation\EventListener\FlushListener` calls it at unit ends.
+- `Infrastructure\Profiling\SpanPlacer` — unit span / traced span / detached span → `SpanPlacement` (`SpanIds`, kind,
+  response status). `OtlpEndSpanProcessor` — sampled only → `SpanMapper` (4096-byte values, UTF-8 names) →
+  `SpanBuffer`; full buffer → `Application\Port\SpanFlushInterface`.
+- `Infrastructure\Otlp\Flusher` (implements the port) — one export per unit, 30 s pause after a failure shared through
+  `cache.app`, exporter built lazily through a `service_closure`. `Presentation\EventListener\FlushListener` calls it at unit ends.
 - `Infrastructure\Otlp\ExporterSettings` / `ExporterFactory` — config then `OTEL_*`, own Symfony HttpClient (PSR-18).
 
 Details: `.claude/docs/architecture.md`. **Read `.claude/docs/known-issues.md` before chasing a

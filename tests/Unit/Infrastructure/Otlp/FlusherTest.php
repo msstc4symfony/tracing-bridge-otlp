@@ -16,6 +16,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Cache\CacheItem;
+use Symfony\Component\Cache\Exception\InvalidArgumentException;
 use Symfony\Component\Clock\MockClock;
 
 #[CoversClass(Flusher::class)]
@@ -107,6 +110,68 @@ final class FlusherTest extends TestCase
 
         self::assertSame(1, $builds);
         self::assertCount(2, $this->exporter->batches);
+    }
+
+    public function testAPauseIsSharedThroughTheCache(): void
+    {
+        $pauses = new ArrayAdapter();
+        $first = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses);
+        $other = new RecordingExporter();
+        $second = new Flusher($this->buffer, static fn (): RecordingExporter => $other, $this->clock, $this->logger, $pauses);
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $first->flush();
+
+        $this->fill(2);
+        $second->flush();
+        self::assertSame([], $other->batches);
+
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->fill(1);
+        $second->flush();
+        self::assertCount(1, $other->batches);
+    }
+
+    public function testTheLaterOfTheOwnAndTheSharedPauseHolds(): void
+    {
+        $pauses = new ArrayAdapter();
+        $first = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses);
+        $other = new RecordingExporter(false);
+        $second = new Flusher($this->buffer, static fn (): RecordingExporter => $other, $this->clock, $this->logger, $pauses);
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $first->flush();
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->fill(1);
+        $second->flush();
+        $this->exporter->outcome = true;
+
+        $this->clock->sleep(Flusher::PAUSE_SECONDS - 1);
+        $this->fill(1);
+        $first->flush();
+
+        self::assertCount(1, $this->exporter->batches);
+    }
+
+    public function testABrokenCacheLeavesThePauseToTheProcess(): void
+    {
+        $pauses = new class extends ArrayAdapter {
+            #[Override]
+            public function getItem(mixed $key): CacheItem
+            {
+                throw new InvalidArgumentException('broken');
+            }
+        };
+        $flusher = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses);
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $flusher->flush();
+
+        $this->fill(1);
+        $flusher->flush();
+
+        self::assertCount(1, $this->exporter->batches);
+        self::assertCount(1, $this->logger->records);
     }
 
     public function testARejectedExportLogsOneWarning(): void

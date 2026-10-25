@@ -50,6 +50,9 @@ final class ExporterFactory
             $settings->timeout,
             self::RETRY_DELAY_MS,
             self::MAX_RETRIES,
+            $settings->caFile,
+            $settings->clientCertificate,
+            $settings->clientKey,
         ));
     }
 

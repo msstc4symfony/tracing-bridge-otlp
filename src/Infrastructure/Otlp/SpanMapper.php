@@ -7,7 +7,6 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 use Msstc4Symfony\ProfilingBundle\Application\DetachedSpanFactoryInterface;
 use Msstc4Symfony\ProfilingBundle\Application\Span\SpanInterface;
 use Msstc4Symfony\TracingBridgeProfiling\Infrastructure\Tracing\TraceSpanKeys;
-use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\SDK\Common\Instrumentation\InstrumentationScopeInterface;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
 use OpenTelemetry\SDK\Trace\StatusData;
@@ -21,12 +20,6 @@ use OpenTelemetry\SDK\Trace\StatusDataInterface;
  */
 final readonly class SpanMapper
 {
-    /** @var array<string, SpanKind::KIND_*> */
-    public const KIND_BY_UNIT_PREFIX = [
-        'request ' => SpanKind::KIND_SERVER,
-        'message ' => SpanKind::KIND_CONSUMER,
-    ];
-
     // Keys of the bridges and profiling markers: ids and flags, not span data.
     private const SKIPPED_KEYS = [
         TraceSpanKeys::SPAN_ID => true,
@@ -35,13 +28,7 @@ final readonly class SpanMapper
         ...DetachedSpanFactoryInterface::AUTOMATIC,
     ];
 
-    // OpenTelemetry semantic convention names next to the profiling.* copy.
-    private const SEMCONV = [
-        'exception' => 'exception.type',
-        'status' => 'http.response.status_code',
-        'connection' => 'db.namespace',
-        'transport' => 'messaging.destination.name',
-    ];
+    private const AUTOMATIC_MARKER = 'profiling_automatic';
 
     private const SERVER_ERROR = 500;
 
@@ -49,9 +36,13 @@ final readonly class SpanMapper
 
     private const NANOS_PER_MICRO = 1000;
 
+    /**
+     * @param positive-int $valueLengthLimit longer strings are cut to this many bytes
+     */
     public function __construct(
         private InstrumentationScopeInterface $scope,
         private ResourceInfo $resource,
+        private int $valueLengthLimit = AttributeLimit::DEFAULT_VALUE_LENGTH,
     ) {
     }
 
@@ -65,7 +56,7 @@ final readonly class SpanMapper
         $startNanos = $this->nanos($span->getStartTime());
 
         return new ExportedSpan(
-            $span->getMessage(),
+            $this->validName($span->getMessage()),
             $kind,
             $ids,
             $this->status($context, $responseStatus),
@@ -90,6 +81,14 @@ final readonly class SpanMapper
     }
 
     /**
+     * The SDK's converter throws on a name that is not UTF-8, which would lose the whole batch.
+     */
+    private function validName(string $name): string
+    {
+        return preg_match('//u', $name) === 1 ? $name : (string) preg_replace('/[\x80-\xFF]/', '?', $name);
+    }
+
+    /**
      * @param array<string, mixed> $context
      *
      * @return array<string, bool|int|float|string>
@@ -98,21 +97,52 @@ final readonly class SpanMapper
     {
         $attributes = [];
         foreach ($context as $key => $value) {
-            if (!is_scalar($value) || isset(self::SKIPPED_KEYS[$key])) {
+            if (isset(self::SKIPPED_KEYS[$key]) || !is_scalar($value) || (is_float($value) && !is_finite($value))) {
                 continue;
             }
 
-            $attributes['profiling.' . $key] = $value;
-            if (isset(self::SEMCONV[$key])) {
-                $attributes[self::SEMCONV[$key]] = $value;
-            }
+            $attributes['profiling.' . $key] = is_string($value) ? substr($value, 0, $this->valueLengthLimit) : $value;
         }
 
-        if ($responseStatus !== null) {
-            $attributes['http.response.status_code'] = $responseStatus;
+        return [...$attributes, ...$this->semconv($context, $responseStatus)];
+    }
+
+    /**
+     * OpenTelemetry semantic convention names, for values of the type the convention expects.
+     *
+     * @param array<string, mixed> $context
+     *
+     * @return array<string, int|string>
+     */
+    private function semconv(array $context, ?int $responseStatus): array
+    {
+        $semconv = [];
+        $exception = $this->nonEmptyString($context['exception'] ?? null);
+        if ($exception !== null) {
+            $semconv['exception.type'] = substr($exception, 0, $this->valueLengthLimit);
         }
 
-        return $attributes;
+        $status = $responseStatus ?? $context['status'] ?? null;
+        if (is_int($status)) {
+            $semconv['http.response.status_code'] = $status;
+        }
+
+        $connection = $this->nonEmptyString($context['connection'] ?? null);
+        if ($connection !== null && ($context[self::AUTOMATIC_MARKER] ?? false) === true) {
+            $semconv['db.namespace'] = substr($connection, 0, $this->valueLengthLimit);
+        }
+
+        $transport = $this->nonEmptyString($context['transport'] ?? null);
+        if ($transport !== null) {
+            $semconv['messaging.destination.name'] = substr($transport, 0, $this->valueLengthLimit);
+        }
+
+        return $semconv;
+    }
+
+    private function nonEmptyString(mixed $value): ?string
+    {
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /**
@@ -121,7 +151,7 @@ final readonly class SpanMapper
     private function status(array $context, ?int $responseStatus): StatusDataInterface
     {
         $status = $responseStatus ?? (is_int($context['status'] ?? null) ? $context['status'] : null);
-        $failed = isset($context['exception'])
+        $failed = $this->nonEmptyString($context['exception'] ?? null) !== null
             || ($context['message_failed'] ?? false) === true
             || ($status !== null && $status >= self::SERVER_ERROR);
 

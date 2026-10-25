@@ -19,8 +19,9 @@ use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * Facts about the current unit of work that are gone when its profiling span ends: the trace of a consumed message
- * (tracing-bundle closes it on WorkerRunningEvent, which Symfony 8.1+ dispatches before WorkerMessageHandledEvent)
- * and the status code of the main response.
+ * (tracing-bundle closes it on WorkerRunningEvent) and the status code of the main response. The message trace is
+ * taken on whichever of handled, failed or running comes first after the handler. With an asynchronous message
+ * execution strategy running may come before the handler ran: the message span then gets the worker's idle trace.
  *
  * @internal
  */
@@ -88,14 +89,15 @@ final class UnitRecorder implements EventSubscriberInterface, ResetInterface
         }
     }
 
-    public function messageTrace(): ?TraceContext
+    /**
+     * The trace of the message just handled, once: the next message span must not reuse it.
+     */
+    public function takeMessageTrace(): ?TraceContext
     {
-        return $this->messageTrace;
-    }
-
-    public function forgetMessage(): void
-    {
+        $trace = $this->messageTrace;
         $this->messageTrace = null;
+
+        return $trace;
     }
 
     public function responseStatus(): ?int

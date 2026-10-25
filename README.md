@@ -48,15 +48,19 @@ Every span profiling records, once it ends, when its trace is sampled:
 | Span | Span id, parent | Kind |
 |---|---|---|
 | Unit of work: `request <route>`, `cli command <name>`, `message <class>`, `action <class>` (with tracing-bridge-logic) | the unit's span of tracing-bundle; parent: the caller's span from `traceparent` / `TraceStamp` (remote), the enclosing unit, or none | SERVER, INTERNAL, CONSUMER, INTERNAL |
-| A span tracing-bridge-profiling traced (yours, DBAL, Action) | its `trace_span_id` / `trace_parent_span_id` | CLIENT with a `connection` (DBAL), else INTERNAL |
+| A span tracing-bridge-profiling traced (yours, DBAL, Action) | its `trace_span_id` / `trace_parent_span_id` | CLIENT for profiling's automatic DBAL spans, else INTERNAL |
 | Detached HTTP client span of profiling | a new span id under the span current when the request started | CLIENT |
 
-- Name: the span message. Times: start and duration of profiling, microsecond precision.
+- Name: the span message; bytes that are not UTF-8 become `?` (the OTLP encoder rejects them). Times: start and
+  duration of profiling, microsecond precision.
 - Attributes: every scalar context value as `profiling.<key>`, plus the semantic convention names
-  `exception.type`, `http.response.status_code` (also the response code of a request span), `db.namespace`
-  (`connection`) and `messaging.destination.name` (`transport`). Arrays, objects, enums and `null` are dropped; the
-  bridge adds nothing profiling did not record (no SQL text, no query string).
-- Status: ERROR with an `exception`, `message_failed: true` or an HTTP status of 500 and above; otherwise unset.
+  `exception.type` (a non-empty string `exception`), `http.response.status_code` (an integer `status`, and the
+  response code of a request span), `db.namespace` (`connection` of a DBAL span) and `messaging.destination.name`
+  (`transport`). Arrays, objects, enums, `null`, NAN and INF are dropped; strings are cut to 4096 bytes
+  (`OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT` / `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`), so one huge value cannot push the
+  batch over the receiver's size limit. The bridge adds nothing profiling did not record (no SQL text, no query string).
+- Status: ERROR with a non-empty `exception`, `message_failed: true` or an HTTP status of 500 and above; otherwise
+  unset.
 - Resource: `service.name` from `service_name`, else `OTEL_SERVICE_NAME` / `OTEL_RESOURCE_ATTRIBUTES`, else the name of
   the project directory; the SDK's resource detectors add the rest. Scope: `msstc4symfony/tracing-bridge-otlp`.
 
@@ -73,15 +77,18 @@ Not exported:
 
 Spans wait in memory for the end of their unit of work: `kernel.terminate`, `console.terminate`, the worker moving on
 after a message (`WorkerRunningEvent`) or stopping. Then one OTLP request sends them; a unit with more than
-`max_buffered_spans` spans sends early. The buffer is emptied on `kernel.reset`.
+`max_buffered_spans` spans sends early. Spans profiling ends on `kernel.reset` (left open by the unit) go with the next
+export.
 
-The export never throws into the application. A failed export (receiver down, timeout, rejected batch, a wrong
-endpoint or protocol) logs one `warning` with the number of dropped spans, and exporting pauses for 30 seconds: the
-spans of that time are dropped and counted in the next log record (`info` when exporting resumes). There are no
-retries. The cost of a down receiver is at most `timeout_ms` once per pause.
+The export never throws into the application. A failed export (receiver down, timeout, rejected or partially rejected
+batch, a wrong endpoint or protocol) logs one `warning` on the `otlp` channel with the number of dropped spans, and
+exporting pauses for 30 seconds: the spans of that time are dropped and counted in the next log record (`info` when
+exporting resumes). There are no retries. The pause is shared through the `cache.app` pool, so PHP-FPM children and
+cron commands wait too; without that pool it holds per process. The cost of a down receiver is at most `timeout_ms`
+once per pause and process sharing the cache.
 
 The exporter has its own HTTP client: the application's `http_client` is traced and profiled, so the export would trace
-itself.
+itself. Install `ext-curl`: the native HTTP client resolves host names without a timeout.
 
 ## Configuration
 
@@ -97,8 +104,10 @@ msstc4symfony_tracing_bridge_otlp:
 ```
 
 Environment variables honoured: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (used as is) and `OTEL_EXPORTER_OTLP_ENDPOINT`,
-`OTEL_EXPORTER_OTLP[_TRACES]_PROTOCOL`, `OTEL_EXPORTER_OTLP[_TRACES]_HEADERS`,
-`OTEL_EXPORTER_OTLP[_TRACES]_COMPRESSION`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`. The configuration wins over
+`OTEL_EXPORTER_OTLP[_TRACES]_PROTOCOL` (`http/protobuf`, `http/json`, `grpc`), `OTEL_EXPORTER_OTLP[_TRACES]_HEADERS`,
+`OTEL_EXPORTER_OTLP[_TRACES]_COMPRESSION` (`none`, `gzip`), `OTEL_EXPORTER_OTLP[_TRACES]_CERTIFICATE`,
+`OTEL_EXPORTER_OTLP[_TRACES]_CLIENT_CERTIFICATE`, `OTEL_EXPORTER_OTLP[_TRACES]_CLIENT_KEY`,
+`OTEL_[SPAN_]ATTRIBUTE_VALUE_LENGTH_LIMIT`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`. The configuration wins over
 them. `OTEL_EXPORTER_OTLP_TIMEOUT` is ignored: the SDK's 10 seconds would hold every request and message that long
 when the receiver hangs.
 
@@ -114,6 +123,10 @@ PHP's error log). Set `OTEL_PHP_LOG_DESTINATION=none` to keep only the bridge's 
   receiver's trace the server span is a sibling of the CLIENT span rather than its child.
 - A fatal error ends PHP before the export: the spans of that unit of work are lost.
 - One buffer serves the container: spans of concurrent Fibers share it.
+- With an asynchronous Messenger execution strategy the worker may move on before the handler ran: the `message …`
+  span then gets the worker's idle trace instead of the message's.
+- A create span processor of the application that wraps spans must run before the bridge's (priority above -65536),
+  or its spans are not exported.
 
 ## Public API
 

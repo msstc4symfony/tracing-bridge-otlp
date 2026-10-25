@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Integration;
 
 use Monolog\LogRecord;
+use Msstc4Symfony\ProfilingBundle\Application\ProfilingFactoryInterface;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CollectingHandler;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\Job;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Integration\Kernel\TestKernel;
@@ -24,6 +25,7 @@ use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Contracts\Service\ResetInterface;
 
 final class KernelExportTest extends TestCase
 {
@@ -140,6 +142,24 @@ final class KernelExportTest extends TestCase
         self::assertSame($unit->getSpanId(), $work->getParentSpanId());
     }
 
+    public function testSpansEndedOnKernelResetGoWithTheNextExport(): void
+    {
+        $kernel = $this->boot();
+        $profiling = $this->testContainer()->get(ProfilingFactoryInterface::class);
+        self::assertInstanceOf(ProfilingFactoryInterface::class, $profiling);
+        $request = Request::create('/traced');
+        $kernel->terminate($request, $kernel->handle($request));
+        $profiling->createSpan('left open');
+
+        $resetter = $this->testContainer()->get('services_resetter');
+        self::assertInstanceOf(ResetInterface::class, $resetter);
+        $resetter->reset();
+        $request = Request::create('/traced');
+        $kernel->terminate($request, $kernel->handle($request));
+
+        self::assertArrayHasKey('left open', $this->exportedByName());
+    }
+
     public function testDisabledRegistersNoService(): void
     {
         $kernel = $this->boot(TestKernel::ENV_DISABLED);
@@ -156,6 +176,14 @@ final class KernelExportTest extends TestCase
         $this->kernel->boot();
 
         return $this->kernel;
+    }
+
+    private function testContainer(): ContainerInterface
+    {
+        $container = $this->kernel?->getContainer()->get('test.service_container');
+        self::assertInstanceOf(ContainerInterface::class, $container);
+
+        return $container;
     }
 
     private function exporter(): InMemoryExporter

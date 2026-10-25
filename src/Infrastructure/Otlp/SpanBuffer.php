@@ -5,15 +5,14 @@ declare(strict_types=1);
 namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
-use Override;
-use Symfony\Contracts\Service\ResetInterface;
 
 /**
- * Spans of the current unit of work, waiting for its end.
+ * Spans of the current unit of work, waiting for its end. Not emptied on kernel.reset: spans profiling ends there
+ * (left open by the unit) come after the unit's export and go with the next one.
  *
  * @internal
  */
-final class SpanBuffer implements ResetInterface
+final class SpanBuffer
 {
     /** @var list<SpanDataInterface> */
     private array $spans = [];
@@ -45,11 +44,5 @@ final class SpanBuffer implements ResetInterface
         $this->spans = [];
 
         return $spans;
-    }
-
-    #[Override]
-    public function reset(): void
-    {
-        $this->spans = [];
     }
 }

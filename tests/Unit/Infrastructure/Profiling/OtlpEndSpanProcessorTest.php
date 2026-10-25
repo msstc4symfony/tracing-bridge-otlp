@@ -11,6 +11,8 @@ use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanMapper;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\CreationRecorder;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\OtlpEndSpanProcessor;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\SpanPlacement;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\SpanPlacer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\UnitRecorder;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingLogger;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\StubSpan;
@@ -41,6 +43,8 @@ use Symfony\Component\Messenger\Event\WorkerMessageReceivedEvent;
 #[CoversClass(OtlpEndSpanProcessor::class)]
 #[UsesClass(CreationRecorder::class)]
 #[UsesClass(UnitRecorder::class)]
+#[UsesClass(SpanPlacer::class)]
+#[UsesClass(SpanPlacement::class)]
 #[UsesClass(SpanMapper::class)]
 #[UsesClass(SpanBuffer::class)]
 #[UsesClass(SpanIds::class)]
@@ -91,11 +95,34 @@ final class OtlpEndSpanProcessorTest extends TestCase
 
     public function testADbalSpanIsAClient(): void
     {
-        $span = $this->created(new StubSpan('SELECT 1', ['connection' => 'default', 'trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'a3ce929d0e0e4736']));
+        $span = $this->created(new StubSpan('SELECT 1', ['connection' => 'default', 'profiling_automatic' => true, 'trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'a3ce929d0e0e4736']));
 
         $this->processor()->process($span, []);
 
         self::assertSame(SpanKind::KIND_CLIENT, $this->single()->getKind());
+    }
+
+    public function testAConnectionKeyWithoutTheAutomaticMarkerIsInternal(): void
+    {
+        $span = $this->created(new StubSpan('import', ['connection' => 'mine', 'trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'a3ce929d0e0e4736']));
+
+        $this->processor()->process($span, []);
+
+        self::assertSame(SpanKind::KIND_INTERNAL, $this->single()->getKind());
+    }
+
+    public function testSkippedNamesAreRememberedUpToALimit(): void
+    {
+        $processor = $this->processor();
+        for ($i = 0; $i <= OtlpEndSpanProcessor::MAX_REPORTED_NAMES; $i++) {
+            $processor->process(new StubSpan('work ' . $i), []);
+        }
+
+        $processor->process(new StubSpan('work 0'), []);
+        $processor->process(new StubSpan('work ' . OtlpEndSpanProcessor::MAX_REPORTED_NAMES), []);
+
+        // The names past the limit are not remembered: the last one is reported again.
+        self::assertCount(OtlpEndSpanProcessor::MAX_REPORTED_NAMES + 2, $this->logger->records);
     }
 
     public function testADetachedSpanGetsANewIdUnderTheSpanCurrentAtCreation(): void
@@ -158,7 +185,7 @@ final class OtlpEndSpanProcessorTest extends TestCase
         self::assertSame(SpanKind::KIND_CONSUMER, $exported->getKind());
         self::assertSame($messageTrace->traceParent->spanId, $exported->getSpanId());
         self::assertSame(self::TRACE_ID, $exported->getTraceId());
-        self::assertNull($this->units->messageTrace());
+        self::assertNull($this->units->takeMessageTrace());
     }
 
     public function testAMessageSpanWithoutARecordedTraceUsesTheCurrentOne(): void
@@ -274,14 +301,11 @@ final class OtlpEndSpanProcessorTest extends TestCase
         };
 
         return new OtlpEndSpanProcessor(
-            $this->creations,
-            $this->units,
-            $this->holder,
+            new SpanPlacer($this->creations, $this->units, $this->holder, ['request ', 'cli command ', 'message ', 'action ']),
             new SpanMapper(new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([]))),
             $this->buffer,
             $flush,
             $this->logger,
-            ['request ', 'cli command ', 'message ', 'action '],
         );
     }
 

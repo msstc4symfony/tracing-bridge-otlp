@@ -75,9 +75,9 @@ final class SpanMapperTest extends TestCase
         self::assertSame([
             'profiling.url_path' => '/pay',
             'profiling.status' => 502,
-            'http.response.status_code' => 502,
             'profiling.exception' => 'RuntimeException',
             'exception.type' => 'RuntimeException',
+            'http.response.status_code' => 502,
         ], $attributes);
     }
 
@@ -109,6 +109,8 @@ final class SpanMapperTest extends TestCase
     #[TestWith([[], 200, StatusCode::STATUS_UNSET])]
     #[TestWith([['message_failed' => false], null, StatusCode::STATUS_UNSET])]
     #[TestWith([['message_failed' => 1], null, StatusCode::STATUS_UNSET])]
+    #[TestWith([['exception' => ''], null, StatusCode::STATUS_UNSET])]
+    #[TestWith([['exception' => false], null, StatusCode::STATUS_UNSET])]
     public function testStatus(array $endContext, ?int $responseStatus, string $code): void
     {
         self::assertSame($code, $this->mapper()->map(new StubSpan('x'), $endContext, $this->ids(), SpanKind::KIND_INTERNAL, $responseStatus)->getStatus()->getCode());
@@ -123,10 +125,66 @@ final class SpanMapperTest extends TestCase
 
     public function testConnectionAndTransportGetTheirSemconvNames(): void
     {
-        $attributes = $this->mapper()->map(new StubSpan('x', ['connection' => 'default', 'transport' => 'async']), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+        $attributes = $this->mapper()->map(new StubSpan('x', ['connection' => 'default', 'profiling_automatic' => true, 'transport' => 'async']), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
 
         self::assertSame('default', $attributes['db.namespace'] ?? null);
         self::assertSame('async', $attributes['messaging.destination.name'] ?? null);
+    }
+
+    public function testSemconvNamesNeedTheirType(): void
+    {
+        $span = new StubSpan('x', ['status' => 'pending', 'exception' => '', 'connection' => 'mine', 'transport' => 5]);
+
+        $attributes = $this->mapper()->map($span, [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+
+        self::assertSame(['profiling.status' => 'pending', 'profiling.exception' => '', 'profiling.connection' => 'mine', 'profiling.transport' => 5], $attributes);
+    }
+
+    public function testLongStringsAreTruncatedToTheLimit(): void
+    {
+        $mapper = new SpanMapper(new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([])), 8);
+
+        $attributes = $mapper->map(new StubSpan('x', ['payload' => str_repeat('a', 1_048_576), 'short' => 'abcdefgh']), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+
+        self::assertSame(['profiling.payload' => 'aaaaaaaa', 'profiling.short' => 'abcdefgh'], $attributes);
+    }
+
+    public function testSemconvValuesAreTruncatedToo(): void
+    {
+        $mapper = new SpanMapper(new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([])), 4);
+        $span = new StubSpan('x', ['exception' => 'RuntimeException', 'connection' => 'default', 'profiling_automatic' => true, 'transport' => 'async_priority']);
+
+        $attributes = $mapper->map($span, [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+
+        self::assertSame(['Runt', 'defa', 'asyn'], [$attributes['exception.type'] ?? null, $attributes['db.namespace'] ?? null, $attributes['messaging.destination.name'] ?? null]);
+    }
+
+    public function testTheResponseCodeWinsOverAStatusInTheContext(): void
+    {
+        $attributes = $this->mapper()->map(new StubSpan('request x', ['status' => 503]), [], $this->ids(), SpanKind::KIND_SERVER, 200)->getAttributes()->toArray();
+
+        self::assertSame(200, $attributes['http.response.status_code'] ?? null);
+    }
+
+    public function testTheDefaultLimitIs4096Bytes(): void
+    {
+        $attributes = $this->mapper()->map(new StubSpan('x', ['payload' => str_repeat('a', 5000)]), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+
+        self::assertSame(str_repeat('a', 4096), $attributes['profiling.payload'] ?? null);
+    }
+
+    #[TestWith([NAN])]
+    #[TestWith([INF])]
+    #[TestWith([-INF])]
+    public function testNonFiniteFloatsAreDropped(float $value): void
+    {
+        self::assertSame([], $this->mapper()->map(new StubSpan('x', ['ratio' => $value]), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray());
+    }
+
+    public function testANameThatIsNotUtf8IsMadeAscii(): void
+    {
+        self::assertSame('bad ? name', $this->mapper()->map(new StubSpan("bad \xff name"), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getName());
+        self::assertSame('café', $this->mapper()->map(new StubSpan('café'), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getName());
     }
 
     public function testCarriesTheScopeAndResource(): void

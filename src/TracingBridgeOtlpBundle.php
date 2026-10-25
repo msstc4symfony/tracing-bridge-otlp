@@ -25,6 +25,7 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
 {
     public const PARAMETER_PREFIX = 'msstc4symfony_tracing_bridge_otlp.';
 
+    // Also ExporterFactory::GRPC_TRANSPORT_FACTORY: deptrac keeps the bundle class off Infrastructure.
     private const GRPC_TRANSPORT_FACTORY = 'OpenTelemetry\Contrib\Grpc\GrpcTransportFactory';
 
     protected string $extensionAlias = 'msstc4symfony_tracing_bridge_otlp';
@@ -39,7 +40,7 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
                     ->defaultTrue()
                 ->end()
                 ->stringNode('service_name')
-                    ->info('service.name of the exported spans; ~: OTEL_SERVICE_NAME, else the basename of kernel.project_dir.')
+                    ->info('service.name of the exported spans; ~: OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES, else the basename of kernel.project_dir.')
                     ->defaultNull()
                     ->cannotBeEmpty()
                 ->end()

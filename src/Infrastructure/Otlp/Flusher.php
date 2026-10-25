@@ -8,6 +8,7 @@ use Closure;
 use Msstc4Symfony\TracingBridgeOtlp\Application\Port\SpanFlushInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use Override;
+use Psr\Cache\CacheItemPoolInterface;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -22,6 +23,8 @@ final class Flusher implements SpanFlushInterface
 {
     public const PAUSE_SECONDS = 30;
 
+    private const PAUSE_KEY = 'msstc4symfony_tracing_bridge_otlp.paused_until';
+
     // Unix time with microseconds.
     private ?float $pausedUntil = null;
 
@@ -33,12 +36,15 @@ final class Flusher implements SpanFlushInterface
     /**
      * @param Closure(): SpanExporterInterface $exporterFactory called on the first export: a misconfigured endpoint or
      *                                                          protocol then fails like an export, not the application
+     * @param CacheItemPoolInterface|null $pauses shares the pause with the other processes (PHP-FPM, cron commands);
+     *                                            null: the pause holds for this process only
      */
     public function __construct(
         private readonly SpanBuffer $buffer,
         private readonly Closure $exporterFactory,
         private readonly ClockInterface $clock,
         private readonly LoggerInterface $logger,
+        private readonly ?CacheItemPoolInterface $pauses = null,
     ) {
     }
 
@@ -50,7 +56,8 @@ final class Flusher implements SpanFlushInterface
             return;
         }
 
-        if ($this->pausedUntil !== null && $this->now() < $this->pausedUntil) {
+        // The later pause holds: another process may have failed after this one.
+        if ($this->now() < max($this->pausedUntil ?? 0.0, $this->sharedPause() ?? 0.0)) {
             $this->dropped += count($spans);
 
             return;
@@ -89,6 +96,33 @@ final class Flusher implements SpanFlushInterface
         $this->logger->warning('OTLP span export failed, {count} spans dropped.', $context);
         $this->dropped = 0;
         $this->pausedUntil = $this->now() + self::PAUSE_SECONDS;
+        $this->sharePause($this->pausedUntil);
+    }
+
+    // The cache is an optimisation: when it fails, the pause holds for this process only.
+    private function sharedPause(): ?float
+    {
+        if (!$this->pauses instanceof CacheItemPoolInterface) {
+            return null;
+        }
+
+        try {
+            $value = $this->pauses->getItem(self::PAUSE_KEY)->get();
+        } catch (Throwable) {
+            return null;
+        }
+
+        return is_float($value) ? $value : null;
+    }
+
+    private function sharePause(float $until): void
+    {
+        try {
+            if ($this->pauses instanceof CacheItemPoolInterface) {
+                $this->pauses->save($this->pauses->getItem(self::PAUSE_KEY)->set($until)->expiresAfter(self::PAUSE_SECONDS));
+            }
+        } catch (Throwable) {
+        }
     }
 
     private function now(): float

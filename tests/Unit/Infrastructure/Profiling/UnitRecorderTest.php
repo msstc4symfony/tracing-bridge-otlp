@@ -58,7 +58,7 @@ final class UnitRecorderTest extends TestCase
         $this->dispatcher->dispatch(new WorkerMessageHandledEvent($this->envelope(), 'async'));
         $this->dispatcher->dispatch(new WorkerRunningEvent($this->worker(), false));
 
-        self::assertSame($messageTrace, $this->recorder->messageTrace());
+        self::assertSame($messageTrace, $this->recorder->takeMessageTrace());
     }
 
     public function testCapturesTheMessageTraceBeforeTheWorkerClosesTheUnitWhenRunningComesFirst(): void
@@ -68,7 +68,7 @@ final class UnitRecorderTest extends TestCase
         $this->dispatcher->dispatch(new WorkerRunningEvent($this->worker(), false));
         $this->dispatcher->dispatch(new WorkerMessageHandledEvent($this->envelope(), 'async'));
 
-        self::assertSame($messageTrace, $this->recorder->messageTrace());
+        self::assertSame($messageTrace, $this->recorder->takeMessageTrace());
     }
 
     public function testAFailedMessageIsCapturedToo(): void
@@ -79,14 +79,14 @@ final class UnitRecorderTest extends TestCase
         $this->holder->reset();
         $this->dispatcher->dispatch(new WorkerRunningEvent($this->worker(), false));
 
-        self::assertSame($messageTrace, $this->recorder->messageTrace());
+        self::assertSame($messageTrace, $this->recorder->takeMessageTrace());
     }
 
     public function testAnIdleTickCapturesNothing(): void
     {
         $this->dispatcher->dispatch(new WorkerRunningEvent($this->worker(), true));
 
-        self::assertNull($this->recorder->messageTrace());
+        self::assertNull($this->recorder->takeMessageTrace());
     }
 
     public function testTheNextMessageForgetsThePreviousTrace(): void
@@ -96,17 +96,16 @@ final class UnitRecorderTest extends TestCase
 
         $this->dispatcher->dispatch(new WorkerMessageReceivedEvent($this->envelope(), 'async'));
 
-        self::assertNull($this->recorder->messageTrace());
+        self::assertNull($this->recorder->takeMessageTrace());
     }
 
-    public function testForgetMessageDropsTheCapturedTrace(): void
+    public function testTakingTheMessageTraceForgetsIt(): void
     {
-        $this->consume();
+        $messageTrace = $this->consume();
         $this->dispatcher->dispatch(new WorkerMessageHandledEvent($this->envelope(), 'async'));
 
-        $this->recorder->forgetMessage();
-
-        self::assertNull($this->recorder->messageTrace());
+        self::assertSame($messageTrace, $this->recorder->takeMessageTrace());
+        self::assertNull($this->recorder->takeMessageTrace());
     }
 
     public function testRemembersTheMainResponseStatusOnly(): void
@@ -136,7 +135,7 @@ final class UnitRecorderTest extends TestCase
 
         $this->recorder->reset();
 
-        self::assertNull($this->recorder->messageTrace());
+        self::assertNull($this->recorder->takeMessageTrace());
         self::assertNull($this->recorder->responseStatus());
     }
 
@@ -147,7 +146,7 @@ final class UnitRecorderTest extends TestCase
         $this->recorder->reset();
         $this->dispatcher->dispatch(new WorkerRunningEvent($this->worker(), false));
 
-        self::assertNull($this->recorder->messageTrace());
+        self::assertNull($this->recorder->takeMessageTrace());
     }
 
     /**

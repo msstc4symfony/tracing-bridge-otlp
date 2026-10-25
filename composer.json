@@ -52,6 +52,7 @@
     "nyholm/psr7": "^1.8",
     "open-telemetry/exporter-otlp": "^1.4",
     "open-telemetry/sdk": "^1.15",
+    "psr/cache": "^2.0|^3.0",
     "psr/clock": "^1.0",
     "psr/log": "^3.0",
     "symfony/clock": "^7.4|^8.0",
@@ -79,6 +80,7 @@
     "symfony/process": "^7.4|^8.0"
   },
   "suggest": {
+    "ext-curl": "bounds DNS resolution by timeout_ms (the native HTTP client resolves names without a timeout)",
     "open-telemetry/transport-grpc": "protocol: grpc (needs ext-grpc)"
   },
   "config": {

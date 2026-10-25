@@ -14,7 +14,10 @@ All notable changes to this bundle are documented here. The format follows
 - Only spans of sampled traces (tracing-bundle 2.2 `sampling.ratio`, parent-based).
 - One export per unit of work (`kernel.terminate`, `console.terminate`, worker events) plus an early one at
   `max_buffered_spans`; a failed export logs one warning and pauses exporting for 30 seconds; no retries.
+- The pause is shared through `cache.app` (PHP-FPM children, cron commands); warnings on the `otlp` log channel.
+- String attribute values cut to 4096 bytes (`OTEL_[SPAN_]ATTRIBUTE_VALUE_LENGTH_LIMIT`); span names made valid UTF-8.
 - Configuration `enabled`, `service_name`, `endpoint`, `protocol`, `timeout_ms`, `max_buffered_spans`; the standard
-  `OTEL_EXPORTER_OTLP_*`, `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` variables as fallbacks.
+  `OTEL_EXPORTER_OTLP_*` (endpoint, protocol, headers, compression, certificates), `OTEL_SERVICE_NAME` and
+  `OTEL_RESOURCE_ATTRIBUTES` variables as fallbacks.
 
 [1.0.0]: https://github.com/msstc4symfony/tracing-bridge-otlp/releases/tag/v1.0.0

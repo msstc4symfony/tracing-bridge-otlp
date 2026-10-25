@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 
+use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExporterSettings;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -22,6 +23,12 @@ final class ExporterSettingsTest extends TestCase
         'OTEL_EXPORTER_OTLP_COMPRESSION',
         'OTEL_EXPORTER_OTLP_TRACES_COMPRESSION',
         'OTEL_EXPORTER_OTLP_TIMEOUT',
+        'OTEL_EXPORTER_OTLP_CERTIFICATE',
+        'OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE',
+        'OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE',
+        'OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE',
+        'OTEL_EXPORTER_OTLP_CLIENT_KEY',
+        'OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY',
     ];
 
     #[Override]
@@ -100,6 +107,56 @@ final class ExporterSettingsTest extends TestCase
         self::assertSame('shop', $settings->headers['x-tenant'] ?? null);
         self::assertArrayHasKey('User-Agent', $settings->headers);
         self::assertSame('gzip', $settings->compression);
+    }
+
+    public function testCertificatesComeFromTheVariables(): void
+    {
+        putenv('OTEL_EXPORTER_OTLP_CERTIFICATE=/etc/ssl/ca.pem');
+        putenv('OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE=/etc/ssl/traces-client.pem');
+        putenv('OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/etc/ssl/client.pem');
+        putenv('OTEL_EXPORTER_OTLP_CLIENT_KEY=/etc/ssl/client.key');
+
+        $settings = ExporterSettings::resolve(null, null, 1000);
+
+        self::assertSame(['/etc/ssl/ca.pem', '/etc/ssl/traces-client.pem', '/etc/ssl/client.key'], [$settings->caFile, $settings->clientCertificate, $settings->clientKey]);
+        self::assertSame(['timeout' => 1.0, 'max_duration' => 1.0, 'cafile' => '/etc/ssl/ca.pem', 'local_cert' => '/etc/ssl/traces-client.pem', 'local_pk' => '/etc/ssl/client.key'], $settings->httpClientOptions());
+    }
+
+    public function testAServerVariableWinsOverTheEnvironment(): void
+    {
+        putenv('OTEL_EXPORTER_OTLP_CERTIFICATE=/etc/ssl/env.pem');
+        $_SERVER['OTEL_EXPORTER_OTLP_CERTIFICATE'] = '/etc/ssl/server.pem';
+
+        try {
+            self::assertSame('/etc/ssl/server.pem', ExporterSettings::resolve(null, null, 1000)->caFile);
+        } finally {
+            unset($_SERVER['OTEL_EXPORTER_OTLP_CERTIFICATE']);
+        }
+    }
+
+    public function testAnUnsupportedCompressionIsRejected(): void
+    {
+        putenv('OTEL_EXPORTER_OTLP_COMPRESSION=brotli');
+
+        $this->expectException(LogicException::class);
+
+        ExporterSettings::resolve(null, null, 1000);
+    }
+
+    public function testNoCertificateByDefault(): void
+    {
+        $settings = ExporterSettings::resolve(null, null, 1000);
+
+        self::assertSame([null, null, null], [$settings->caFile, $settings->clientCertificate, $settings->clientKey]);
+    }
+
+    public function testAnUnsupportedProtocolFromTheVariablesIsRejected(): void
+    {
+        putenv('OTEL_EXPORTER_OTLP_PROTOCOL=http/ndjson');
+
+        $this->expectException(LogicException::class);
+
+        ExporterSettings::resolve(null, null, 1000);
     }
 
     public function testTheTimeoutIsTheConfiguredOneWhateverTheVariable(): void

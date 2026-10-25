@@ -10,6 +10,7 @@ use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanBuffer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanMapper;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\CreationRecorder;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\OtlpEndSpanProcessor;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\SpanPlacer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\UnitRecorder;
 use Msstc4Symfony\TracingBridgeOtlp\Presentation\EventListener\FlushListener;
 use Msstc4Symfony\TracingBridgeOtlp\TracingBridgeOtlpBundle;
@@ -47,17 +48,23 @@ return static function (ContainerConfigurator $container): void {
     $services->set(Flusher::class)
         ->arg('$exporterFactory', service_closure($exporter))
         ->arg('$clock', inline_service(NativeClock::class))
+        ->arg('$pauses', service('cache.app')->nullOnInvalid())
+        ->tag('monolog.logger', ['channel' => 'otlp'])
     ;
-    // After tracing-bridge-profiling's processor (priority 0): records the span object end processors receive.
+    // Last of the create processors: it must key the span object end processors receive, after every wrapper
+    // (tracing-bridge-profiling's at priority 0, an application's at any priority above this one).
     $services->set(CreationRecorder::class)
         ->autoconfigure(false)
-        ->tag(CreateSpanProcessorInterface::class, ['priority' => -1024])
+        ->tag(CreateSpanProcessorInterface::class, ['priority' => -65536])
         ->tag('kernel.reset', ['method' => 'reset'])
     ;
     $services->set(UnitRecorder::class);
+    $services->set(SpanPlacer::class)
+        ->arg('$unitSpanPrefixes', param('msstc4symfony_tracing_bridge_profiling.unit_span_prefixes'))
+    ;
     $services->set(OtlpEndSpanProcessor::class)
         ->arg('$flush', service(Flusher::class))
-        ->arg('$unitSpanPrefixes', param('msstc4symfony_tracing_bridge_profiling.unit_span_prefixes'))
+        ->tag('monolog.logger', ['channel' => 'otlp'])
     ;
     $services->set(FlushListener::class)
         ->arg('$flush', service(Flusher::class))
