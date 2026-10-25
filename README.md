@@ -85,10 +85,11 @@ The export never throws into the application. A failed export (receiver down, ti
 batch, a wrong endpoint or protocol) logs one `warning` on the `otlp` channel with the number of dropped spans, and
 exporting pauses for 30 seconds: the spans of that time are dropped and counted in the next log record (`info` when
 exporting resumes). There are no retries. The pause is shared through a filesystem cache in
-`%kernel.cache_dir%/msstc4symfony_tracing_bridge_otlp`, so the PHP-FPM children and cron commands of a host wait too: a
-PHP-FPM request reads it once, a long-running worker at most once a second. The application's cache pools are not used:
-their lookups are metrics. When that directory is not writable the pause holds per process. The cost of a down receiver
-is at most `timeout_ms` once per pause and host.
+`%kernel.share_dir%/msstc4symfony_tracing_bridge_otlp` (`%kernel.cache_dir%/…` when the kernel has no share dir), so
+the PHP-FPM children, cron commands and workers using that directory wait too: a PHP-FPM request reads it once, a
+long-running worker at most once a second. The application's cache pools are not used: their lookups are metrics. When
+the directory is not writable the pause holds per process. The cost of a down receiver is at most `timeout_ms` once per
+pause and directory (typically a host or a container).
 
 The exporter has its own HTTP client: the application's `http_client` is traced and profiled, so the export would trace
 itself. Install `ext-curl`: the native HTTP client resolves host names without a timeout.

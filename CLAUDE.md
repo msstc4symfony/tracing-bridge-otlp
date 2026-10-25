@@ -29,7 +29,7 @@ Develop against the CI profile: `COMPOSER=composer-ci.json composer install` (lo
   response status). `OtlpEndSpanProcessor` — sampled only → `SpanMapper` (4096-byte values, UTF-8 names) →
   `SpanBuffer`; full buffer → `Application\Port\SpanFlushInterface`.
 - `Infrastructure\Otlp\Flusher` (implements the port) — one export per unit, 30 s pause after a failure shared through
-  a filesystem cache in `kernel.cache_dir` (not `cache.app`: its lookups are metrics), exporter built lazily through a `service_closure`. `Presentation\EventListener\FlushListener` calls it at unit ends.
+  a filesystem cache in `kernel.share_dir` / `kernel.cache_dir` (not `cache.app`: its lookups are metrics), exporter built lazily through a `service_closure`. `Presentation\EventListener\FlushListener` calls it at unit ends.
 - `Infrastructure\Otlp\ExporterSettings` / `ExporterFactory` — config then `OTEL_*`, own Symfony HttpClient (PSR-18).
 
 Details: `.claude/docs/architecture.md`. **Read `.claude/docs/known-issues.md` before chasing a

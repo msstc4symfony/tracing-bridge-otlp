@@ -17,6 +17,7 @@ use Msstc4Symfony\TracingBridgeOtlp\TracingBridgeOtlpBundle;
 use OpenTelemetry\SDK\Common\Instrumentation\InstrumentationScopeInterface;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
+use Psr\Log\NullLogger;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -50,7 +51,10 @@ return static function (ContainerConfigurator $container): void {
         ->arg('$exporterFactory', service_closure($exporter))
         ->arg('$clock', inline_service(NativeClock::class))
         // Not cache.app: its lookups are application metrics, and every flush would count as one.
-        ->arg('$pauses', inline_service(FilesystemAdapter::class)->args(['', 0, '%kernel.cache_dir%/msstc4symfony_tracing_bridge_otlp']))
+        ->arg('$pauses', inline_service(FilesystemAdapter::class)
+            ->args(['', 0, param($prefix . 'pause_dir')])
+            // An unwritable directory leaves the pause per process; the adapter must not warn about it.
+            ->call('setLogger', [inline_service(NullLogger::class)]))
         ->tag('monolog.logger', ['channel' => 'otlp'])
     ;
     // Last of the create processors: it must key the span object end processors receive, after every wrapper

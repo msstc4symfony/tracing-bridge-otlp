@@ -6,6 +6,7 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Test\Integration\Kernel;
 
 use Msstc4Symfony\ProfilingBundle\ProfilingBundle;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CollectingHandler;
+use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CountingPool;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\Job;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\JobCommand;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\JobHandler;
@@ -25,6 +26,8 @@ use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+
 final class TestKernel extends Kernel
 {
     use MicroKernelTrait;
@@ -32,6 +35,8 @@ final class TestKernel extends Kernel
     public const EXPORTER = 'msstc4symfony_tracing_bridge_otlp.exporter';
 
     public const ENV_DISABLED = 'disabled';
+
+    public const COUNTING_CACHE_APP = 'test.counting_cache_app';
 
     // The bridge before profiling-bundle: services are reset in registration order.
     public const ENV_BRIDGE_FIRST = 'bridge_first';
@@ -100,6 +105,11 @@ final class TestKernel extends Kernel
         $services->set(JobHandler::class);
         $services->set(JobCommand::class);
         $services->set('test.mock_response', MockResponse::class)->args(['{}']);
+        $services->set(self::COUNTING_CACHE_APP, CountingPool::class)
+            ->decorate('cache.app')
+            ->args([service('.inner')])
+            ->public()
+        ;
         if ($this->environment !== self::ENV_DISABLED) {
             $services->set(self::EXPORTER, InMemoryExporter::class)->public();
         }

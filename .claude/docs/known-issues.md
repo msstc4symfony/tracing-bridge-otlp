@@ -54,7 +54,8 @@
 ## Ревью 1.0.0 (2026-10-25 UTC)
 
 - **Пауза только в процессе бесполезна под PHP-FPM/cron**: каждый запрос ждал бы `timeout_ms`. `Flusher` делит паузу
-  через `FilesystemAdapter` в `%kernel.cache_dir%/msstc4symfony_tracing_bridge_otlp` (1.0.1; в 1.0.0 был `cache.app`), ключ `msstc4symfony_tracing_bridge_otlp.paused_until`, ошибки кэша
+  через `FilesystemAdapter` в `%kernel.share_dir%/msstc4symfony_tracing_bridge_otlp` (без share dir — `%kernel.cache_dir%/…`;
+  1.0.1, в 1.0.0 был `cache.app`), ключ `msstc4symfony_tracing_bridge_otlp.paused_until`, ошибки кэша
   глотаются (пауза остаётся процессной). Счётчик потерянных — по процессу.
 - **Имя спана не в UTF-8 роняет весь batch** (`SpanConverter::setName` бросает «Expect utf-8 encoding»): `SpanMapper`
   заменяет байты ≥ 0x80 на `?`, если строка не UTF-8. Значения атрибутов не в UTF-8 проходят как bytes.
@@ -88,5 +89,11 @@
 - **Ключ атрибута не в UTF-8** роняет конвертер так же, как имя: такие ключи отбрасываются.
 - **Не `cache.app` для паузы (1.0.1, 2026-10-25 UTC)**: metrics-bundle считает обращения к пулам приложения
   (`symfony_cache_request{pool="cache.app"}`), и каждый flush давал лишний miss — e2e showcase
-  (`metrics.feature:43`, miss 16 → 18 вместо +1) поймал. Теперь свой `FilesystemAdapter` вне пулов приложения: общий
-  на хост (FPM, cron, воркеры), не между хостами; нет прав на запись — пауза процессная.
+  (`metrics.feature:43`, miss 16 → 18 вместо +1) поймал. Теперь свой inline `FilesystemAdapter` (у inline-сервиса нет
+  id, metrics-bundle и CacheCollectorPass его не видят; логгер — NullLogger, иначе warning о записи) в
+  `kernel.share_dir` (`loadExtension()` выбирает по `hasParameter`, параметр `…pause_dir`). Общий для процессов одного
+  каталога (обычно хост/контейнер), не между хостами — с `cache.app` на Redis 1.0.0 делил паузу на кластер. Опция
+  `pause_pool` (свой межхостовый пул вне метрик) — кандидат на 1.1. Нет прав на запись — пауза процессная. Воркер
+  помнит каталог с конструктора: после `cache:clear` без рестарта может писать в пересозданный каталог (воркеры
+  перезапускают после деплоя).
+- **Тест на `cache.app`** поведенческий: `TestKernel` декорирует `cache.app` `CountingPool`, после запроса обращений 0.

@@ -6,8 +6,8 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Test\Integration;
 
 use Monolog\LogRecord;
 use Msstc4Symfony\ProfilingBundle\Application\ProfilingFactoryInterface;
-use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Flusher;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CollectingHandler;
+use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CountingPool;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\Job;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Integration\Kernel\TestKernel;
 use Msstc4Symfony\TracingBundle\Application\Port\TraceContextHolderInterface;
@@ -22,9 +22,7 @@ use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use ReflectionClass;
-use ReflectionProperty;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
-use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\Filesystem\Filesystem;
@@ -192,17 +190,17 @@ final class KernelExportTest extends TestCase
         self::assertSame('abc', ($this->exportedByName()['long'] ?? null)?->getAttributes()->get('profiling.payload'));
     }
 
-    public function testThePauseIsKeptOutsideTheApplicationsCachePools(): void
+    public function testExportingDoesNotTouchTheApplicationsCache(): void
     {
-        $this->boot();
-        $flusher = $this->testContainer()->get(Flusher::class);
-        self::assertInstanceOf(Flusher::class, $flusher);
+        $kernel = $this->boot();
+        $request = Request::create('/traced');
 
-        $pauses = (new ReflectionProperty(Flusher::class, 'pauses'))->getValue($flusher);
+        $kernel->terminate($request, $kernel->handle($request));
 
-        // cache.app lookups are application metrics (metrics-bundle counts hits and misses per pool).
-        self::assertInstanceOf(FilesystemAdapter::class, $pauses);
-        self::assertNotSame($this->testContainer()->get('cache.app'), $pauses);
+        $pool = $this->testContainer()->get(TestKernel::COUNTING_CACHE_APP);
+        self::assertInstanceOf(CountingPool::class, $pool);
+        self::assertNotSame([], $this->exporter()->getSpans());
+        self::assertSame(0, $pool->lookups);
     }
 
     public function testDisabledRegistersNoService(): void
