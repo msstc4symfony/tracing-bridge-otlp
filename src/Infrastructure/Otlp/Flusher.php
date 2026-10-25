@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
 use Closure;
-use DateTimeImmutable;
 use Msstc4Symfony\TracingBridgeOtlp\Application\Port\SpanFlushInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use Override;
@@ -23,7 +22,8 @@ final class Flusher implements SpanFlushInterface
 {
     public const PAUSE_SECONDS = 30;
 
-    private ?DateTimeImmutable $pausedUntil = null;
+    // Unix time with microseconds.
+    private ?float $pausedUntil = null;
 
     /** Spans drained without export since the last failure. */
     private int $dropped = 0;
@@ -50,7 +50,7 @@ final class Flusher implements SpanFlushInterface
             return;
         }
 
-        if ($this->pausedUntil instanceof DateTimeImmutable && $this->clock->now() < $this->pausedUntil) {
+        if ($this->pausedUntil !== null && $this->now() < $this->pausedUntil) {
             $this->dropped += count($spans);
 
             return;
@@ -88,6 +88,11 @@ final class Flusher implements SpanFlushInterface
 
         $this->logger->warning('OTLP span export failed, {count} spans dropped.', $context);
         $this->dropped = 0;
-        $this->pausedUntil = $this->clock->now()->modify('+' . self::PAUSE_SECONDS . ' seconds');
+        $this->pausedUntil = $this->now() + self::PAUSE_SECONDS;
+    }
+
+    private function now(): float
+    {
+        return (float) $this->clock->now()->format('U.u');
     }
 }

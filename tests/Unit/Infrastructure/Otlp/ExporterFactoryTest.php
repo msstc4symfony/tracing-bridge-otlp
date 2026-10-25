@@ -6,11 +6,14 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 
 use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExporterFactory;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExporterSettings;
 use OpenTelemetry\Contrib\Otlp\SpanExporter;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(ExporterFactory::class)]
+#[UsesClass(ExporterSettings::class)]
 final class ExporterFactoryTest extends TestCase
 {
     public function testBuildsAnHttpExporter(): void

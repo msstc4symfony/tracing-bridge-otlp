@@ -32,6 +32,26 @@ final class ExportedSpanTest extends TestCase
         self::assertTrue($span->hasEnded());
     }
 
+    public function testARootHasAnInvalidParent(): void
+    {
+        $span = $this->span(new SpanIds(self::TRACE_ID, 'b7ad6b7169203331', null, false, 1));
+
+        self::assertFalse($span->getParentContext()->isValid());
+        self::assertSame('0000000000000000', $span->getParentSpanId());
+    }
+
+    public function testAParentIsRemoteOnlyWhenSaidSo(): void
+    {
+        $remote = $this->span(new SpanIds(self::TRACE_ID, 'b7ad6b7169203331', '00f067aa0ba902b7', true, 1));
+        $local = $this->span(new SpanIds(self::TRACE_ID, 'b7ad6b7169203331', '00f067aa0ba902b7', false, 1));
+
+        self::assertTrue($remote->getParentContext()->isRemote());
+        self::assertFalse($local->getParentContext()->isRemote());
+        self::assertSame('00f067aa0ba902b7', $remote->getParentSpanId());
+        self::assertSame('00f067aa0ba902b7', $local->getParentSpanId());
+        self::assertSame(self::TRACE_ID, $local->getParentContext()->getTraceId());
+    }
+
     public function testAnUnsampledSpanSaysSo(): void
     {
         $span = $this->span(new SpanIds(self::TRACE_ID, 'b7ad6b7169203331', '00f067aa0ba902b7', true, 0));

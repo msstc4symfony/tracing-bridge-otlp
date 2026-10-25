@@ -45,7 +45,9 @@ final readonly class SpanMapper
 
     private const SERVER_ERROR = 500;
 
-    private const NANOS_PER_SECOND = 1_000_000_000;
+    private const MICROS_PER_SECOND = 1_000_000;
+
+    private const NANOS_PER_MICRO = 1000;
 
     public function __construct(
         private InstrumentationScopeInterface $scope,
@@ -76,13 +78,11 @@ final readonly class SpanMapper
     }
 
     /**
-     * Whole seconds and the fraction apart: a Unix time in nanoseconds is above 2^53, where a float loses digits.
+     * Microsecond precision, as microtime() gives: a Unix time in nanoseconds is above 2^53, where a float loses digits.
      */
     private function nanos(float $seconds): int
     {
-        $whole = floor($seconds);
-
-        return (int) $whole * self::NANOS_PER_SECOND + (int) round(($seconds - $whole) * self::NANOS_PER_SECOND);
+        return (int) round($seconds * self::MICROS_PER_SECOND) * self::NANOS_PER_MICRO;
     }
 
     /**

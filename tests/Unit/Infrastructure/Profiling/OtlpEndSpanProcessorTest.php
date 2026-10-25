@@ -12,6 +12,7 @@ use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanMapper;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\CreationRecorder;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\OtlpEndSpanProcessor;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\UnitRecorder;
+use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingLogger;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\StubSpan;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\Baggage;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceContext;
@@ -26,7 +27,6 @@ use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
-use Psr\Log\NullLogger;
 use stdClass;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpFoundation\Request;
@@ -61,6 +61,8 @@ final class OtlpEndSpanProcessorTest extends TestCase
 
     private int $flushes = 0;
 
+    private RecordingLogger $logger;
+
     #[Override]
     protected function setUp(): void
     {
@@ -68,6 +70,7 @@ final class OtlpEndSpanProcessorTest extends TestCase
         $this->creations = new CreationRecorder($this->holder);
         $this->units = new UnitRecorder($this->holder);
         $this->buffer = new SpanBuffer(10);
+        $this->logger = new RecordingLogger();
     }
 
     public function testABridgeSpanUsesItsTraceSpanIdsAndTheTraceIdAtCreation(): void
@@ -107,6 +110,7 @@ final class OtlpEndSpanProcessorTest extends TestCase
         self::assertSame(SpanKind::KIND_CLIENT, $exported->getKind());
         self::assertSame(self::TRACE_ID, $exported->getTraceId());
         self::assertSame($current, $exported->getParentSpanId());
+        self::assertFalse($exported->getParentContext()->isRemote());
         self::assertTrue(TraceParent::isSpanId($exported->getSpanId()));
         self::assertNotSame($current, $exported->getSpanId());
     }
@@ -177,6 +181,44 @@ final class OtlpEndSpanProcessorTest extends TestCase
         self::assertFalse($exported->getParentContext()->isRemote());
     }
 
+    public function testAnActionSpanUnderALocalUnitHasALocalParent(): void
+    {
+        $action = $this->holder->current()->withChildSpan();
+        $this->holder->replace($action);
+
+        $this->processor()->process(new StubSpan('action App\Pay'), []);
+
+        $exported = $this->single();
+        self::assertSame($action->parentSpanId, $exported->getParentSpanId());
+        self::assertFalse($exported->getParentContext()->isRemote());
+    }
+
+    public function testAnInvalidTraceParentSpanIdMakesARoot(): void
+    {
+        $span = $this->created(new StubSpan('work', ['trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'xyz']));
+
+        $this->processor()->process($span, []);
+
+        self::assertFalse($this->single()->getParentContext()->isValid());
+    }
+
+    public function testASkippedSpanIsReportedOncePerNameUntilReset(): void
+    {
+        $processor = $this->processor();
+
+        $processor->process(new StubSpan('work'), []);
+        $processor->process(new StubSpan('work'), []);
+        $processor->process(new StubSpan('other'), []);
+        $processor->reset();
+        $processor->process(new StubSpan('work'), []);
+
+        self::assertSame([
+            ['level' => 'debug', 'message' => 'Span "{span}" is not exported: it is not part of a trace.', 'context' => ['span' => 'work']],
+            ['level' => 'debug', 'message' => 'Span "{span}" is not exported: it is not part of a trace.', 'context' => ['span' => 'other']],
+            ['level' => 'debug', 'message' => 'Span "{span}" is not exported: it is not part of a trace.', 'context' => ['span' => 'work']],
+        ], $this->logger->records);
+    }
+
     public function testAnUnsampledTraceIsNotExported(): void
     {
         $this->holder->replace($this->continued('00'));
@@ -238,7 +280,7 @@ final class OtlpEndSpanProcessorTest extends TestCase
             new SpanMapper(new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([]))),
             $this->buffer,
             $flush,
-            new NullLogger(),
+            $this->logger,
             ['request ', 'cli command ', 'message ', 'action '],
         );
     }

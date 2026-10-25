@@ -46,6 +46,14 @@ final class SpanMapperTest extends TestCase
         self::assertTrue($data->getContext()->isSampled());
     }
 
+    // Floats near 1.7e9 are 2.4e-7 apart: these are .25000075 and .25000025.
+    #[TestWith([1761350400.2500007, 1761350400250001000])]
+    #[TestWith([1761350400.2500002, 1761350400250000000])]
+    public function testTimesAreRoundedToTheMicrosecond(float $start, int $nanos): void
+    {
+        self::assertSame($nanos, $this->mapper()->map(new StubSpan('x', startTime: $start, duration: 0.0), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getStartEpochNanos());
+    }
+
     public function testARootSpanHasAnInvalidParentAndARemoteParentIsMarkedRemote(): void
     {
         $root = $this->mapper()->map(new StubSpan('request x'), [], new SpanIds(self::TRACE_ID, 'b7ad6b7169203331', null, false, 1), SpanKind::KIND_SERVER, 200);

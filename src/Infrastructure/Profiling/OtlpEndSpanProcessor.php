@@ -35,8 +35,6 @@ final class OtlpEndSpanProcessor implements EndSpanProcessorInterface, ResetInte
 
     private const REQUEST_PREFIX = 'request ';
 
-    private const INVALID_SPAN_ID = '0000000000000000';
-
     /** @var array<string, true> span names already reported as skipped */
     private array $reported = [];
 
@@ -59,12 +57,14 @@ final class OtlpEndSpanProcessor implements EndSpanProcessorInterface, ResetInte
     public function process(SpanInterface $span, array $context): void
     {
         $prefix = $this->unitPrefix($span->getMessage());
-        [$trace, $ids, $kind] = $prefix !== null ? $this->unit($prefix) : $this->traced($span);
-        if (!$trace instanceof TraceContext || !$ids instanceof SpanIds) {
+        $place = $prefix !== null ? $this->unit($prefix) : $this->traced($span);
+        if ($place === null) {
             $this->reportSkipped($span->getMessage());
 
             return;
         }
+
+        [$trace, $ids, $kind] = $place;
 
         if (($trace->traceParent->flags & TraceParent::FLAG_SAMPLED) === 0) {
             return;
@@ -117,30 +117,30 @@ final class OtlpEndSpanProcessor implements EndSpanProcessorInterface, ResetInte
     }
 
     /**
-     * @return array{TraceContext|null, SpanIds|null, int}
+     * @return array{TraceContext, SpanIds, int}|null
      */
-    private function traced(SpanInterface $span): array
+    private function traced(SpanInterface $span): ?array
     {
         $trace = $this->creations->traceAt($span);
         if (!$trace instanceof TraceContext) {
-            return [null, null, SpanKind::KIND_INTERNAL];
+            return null;
         }
 
         $context = $span->getContext();
         $traceId = $trace->traceParent->traceId;
         $spanId = $context[TraceSpanKeys::SPAN_ID] ?? null;
-        if (is_string($spanId) && $spanId !== '' && TraceParent::isSpanId($spanId)) {
+        if (is_string($spanId) && TraceParent::isSpanId($spanId)) {
             $parent = $context[TraceSpanKeys::PARENT_SPAN_ID] ?? null;
-            $ids = new SpanIds($traceId, $spanId, is_string($parent) && $parent !== '' && TraceParent::isSpanId($parent) ? $parent : null, false, $trace->traceParent->flags);
+            $ids = new SpanIds($traceId, $spanId, is_string($parent) && TraceParent::isSpanId($parent) ? $parent : null, false, $trace->traceParent->flags);
 
             return [$trace, $ids, isset($context['connection']) ? SpanKind::KIND_CLIENT : SpanKind::KIND_INTERNAL];
         }
 
         if ($this->isDetached($context)) {
-            return [$trace, new SpanIds($traceId, $this->newSpanId(), $trace->traceParent->spanId, false, $trace->traceParent->flags), SpanKind::KIND_CLIENT];
+            return [$trace, new SpanIds($traceId, $trace->traceParent->child()->spanId, $trace->traceParent->spanId, false, $trace->traceParent->flags), SpanKind::KIND_CLIENT];
         }
 
-        return [null, null, SpanKind::KIND_INTERNAL];
+        return null;
     }
 
     /**
@@ -165,17 +165,5 @@ final class OtlpEndSpanProcessor implements EndSpanProcessorInterface, ResetInte
 
         $this->reported[$name] = true;
         $this->logger->debug('Span "{span}" is not exported: it is not part of a trace.', ['span' => $name]);
-    }
-
-    /**
-     * @return non-empty-string
-     */
-    private function newSpanId(): string
-    {
-        do {
-            $id = bin2hex(random_bytes(8));
-        } while ($id === self::INVALID_SPAN_ID || $id === '');
-
-        return $id;
     }
 }

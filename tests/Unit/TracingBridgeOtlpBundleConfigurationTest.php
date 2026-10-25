@@ -48,6 +48,13 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
         ]));
     }
 
+    public function testAcceptsTheLowestLimitsAndProtobuf(): void
+    {
+        $config = $this->process(['protocol' => 'http/protobuf', 'timeout_ms' => 1, 'max_buffered_spans' => 1]);
+
+        self::assertSame(['http/protobuf', 1, 1], [$config['protocol'] ?? null, $config['timeout_ms'] ?? null, $config['max_buffered_spans'] ?? null]);
+    }
+
     /**
      * @param array<string, bool|int|string|null> $config
      */

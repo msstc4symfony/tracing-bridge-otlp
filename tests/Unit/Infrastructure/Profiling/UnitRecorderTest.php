@@ -140,6 +140,16 @@ final class UnitRecorderTest extends TestCase
         self::assertNull($this->recorder->responseStatus());
     }
 
+    public function testResetEndsTheMessageInFlight(): void
+    {
+        $this->consume();
+
+        $this->recorder->reset();
+        $this->dispatcher->dispatch(new WorkerRunningEvent($this->worker(), false));
+
+        self::assertNull($this->recorder->messageTrace());
+    }
+
     /**
      * Received, then the handler continues the sender's trace as IncomingTraceMiddleware does.
      */

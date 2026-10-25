@@ -141,6 +141,60 @@ final class FlusherTest extends TestCase
         self::assertSame(['level' => 'info', 'message' => 'OTLP span export resumed, {dropped} spans dropped while paused.', 'context' => ['dropped' => 3]], $this->logger->records[1] ?? null);
     }
 
+    public function testEveryFlushDuringThePauseAddsToTheDroppedCount(): void
+    {
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $this->flusher->flush();
+        $this->exporter->outcome = true;
+        $this->fill(2);
+        $this->flusher->flush();
+        $this->fill(3);
+        $this->flusher->flush();
+
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->fill(1);
+        $this->flusher->flush();
+
+        self::assertSame(['dropped' => 5], $this->logger->records[1]['context'] ?? null);
+    }
+
+    public function testAResumedExportStartsCountingAfresh(): void
+    {
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $this->flusher->flush();
+        $this->fill(3);
+        $this->flusher->flush();
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->exporter->outcome = true;
+        $this->fill(1);
+        $this->flusher->flush();
+
+        $this->exporter->outcome = false;
+        $this->fill(2);
+        $this->flusher->flush();
+
+        self::assertSame(['count' => 2], $this->logger->records[2]['context'] ?? null);
+    }
+
+    public function testThePauseLastsExactlyThePauseSeconds(): void
+    {
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $this->flusher->flush();
+
+        $this->clock->sleep(Flusher::PAUSE_SECONDS - 0.001);
+        $this->fill(1);
+        $this->flusher->flush();
+        self::assertCount(1, $this->exporter->batches);
+
+        $this->clock->sleep(0.001);
+        $this->fill(1);
+        $this->flusher->flush();
+        self::assertCount(2, $this->exporter->batches);
+    }
+
     public function testAFailureAfterThePauseCountsThePausedSpansToo(): void
     {
         $this->exporter->outcome = false;
