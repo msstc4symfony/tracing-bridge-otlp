@@ -5,29 +5,37 @@ Guidance for Claude Code in this repository. Deep references live under `.claude
 ## What this is
 
 Symfony bundle (`msstc4symfony/tracing-bridge-otlp`, namespace `Msstc4Symfony\TracingBridgeOtlp`, config alias
-`msstc4symfony_tracing_bridge_otlp`): Exports msstc4symfony/profiling-bundle spans with msstc4symfony/tracing-bundle ids over OTLP. PHP >= 8.2, Symfony 7.4 / 8.x.
-Library code only.
+`msstc4symfony_tracing_bridge_otlp`) that exports msstc4symfony/profiling-bundle spans over OTLP with the trace and span
+ids of msstc4symfony/tracing-bundle and tracing-bridge-profiling. PHP >= 8.2 (64-bit), Symfony 7.4 / 8.x. Library code
+only. Spec: `../docs/superpowers/specs/2026-10-25-otlp-span-export-design.md`.
 
 ## Common commands
 
-Develop against the CI profile: `COMPOSER=composer-ci.json composer install`.
+Develop against the CI profile: `COMPOSER=composer-ci.json composer install` (locally add
+`--ignore-platform-req=php` when roave/security-advisories conflicts with the installed PHP patch release).
 
 - `make check` — `php -l`, PHPStan level 10, PHP-CS-Fixer, `composer validate --strict`,
   `composer audit`, Rector dry-run, deptrac. Run as `COMPOSER=composer-ci.json make check`.
-- `make test` — unit + integration suites; `make infection`, `make fix`, `make regenerate-baseline`.
+- `make test` — unit + integration suites; `make infection` (unit suite only), `make fix`.
 - `php ../bundle-standard/bin/verify-standard.php .` — standard compliance (the same check CI runs).
 
 ## Architecture in 60 seconds
 
-- `TracingBridgeOtlpBundle` (`AbstractBundle`) defines the config tree and imports `src/Resources/config/services.php`.
-- Use-cases are vertical slices `src/Application/<Aggregate>/<UseCase>/{Action,Input,Output}.php`.
-- Layers and allowed dependencies are enforced by `deptrac.yaml`.
+- `Infrastructure\Profiling\CreationRecorder` — profiling create processor (priority -1024, after
+  tracing-bridge-profiling): `WeakMap` span → trace current at creation.
+- `Infrastructure\Profiling\UnitRecorder` — subscriber: trace of a consumed message (captured at 4096 on the first
+  worker event after handling) and the main response status.
+- `Infrastructure\Profiling\OtlpEndSpanProcessor` — end processor: unit span / traced span / detached span → `SpanIds`,
+  sampled only → `SpanMapper` → `SpanBuffer`; full buffer → `Application\Port\SpanFlushInterface`.
+- `Infrastructure\Otlp\Flusher` (implements the port) — one export per unit, 30 s pause after a failure, exporter built
+  lazily through a `service_closure`. `Presentation\EventListener\FlushListener` calls it at unit ends.
+- `Infrastructure\Otlp\ExporterSettings` / `ExporterFactory` — config then `OTEL_*`, own Symfony HttpClient (PSR-18).
 
 Details: `.claude/docs/architecture.md`. **Read `.claude/docs/known-issues.md` before chasing a
 "weird" failure.**
 
 ## Pointers
 
-- `.claude/docs/architecture.md` — layers, wiring, service ids.
+- `.claude/docs/architecture.md` — layers, wiring, event priorities.
 - `.claude/docs/conventions.md` — layout, tests, commits.
-- `.claude/docs/known-issues.md` — family-wide Symfony/CI traps.
+- `.claude/docs/known-issues.md` — OTel SDK, Messenger and CI traps.
