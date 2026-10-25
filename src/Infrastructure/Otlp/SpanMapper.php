@@ -79,10 +79,14 @@ final readonly class SpanMapper
 
     /**
      * Microsecond precision, as microtime() gives: a Unix time in nanoseconds is above 2^53, where a float loses digits.
+     * Rounded by hand: round() of floats this large differs between PHP versions.
      */
     private function nanos(float $seconds): int
     {
-        return (int) round($seconds * self::MICROS_PER_SECOND) * self::NANOS_PER_MICRO;
+        $micros = $seconds * self::MICROS_PER_SECOND;
+        $whole = (int) $micros;
+
+        return ($micros - $whole >= 0.5 ? $whole + 1 : $whole) * self::NANOS_PER_MICRO;
     }
 
     /**

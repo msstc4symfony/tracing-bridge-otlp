@@ -46,8 +46,9 @@ final class SpanMapperTest extends TestCase
         self::assertTrue($data->getContext()->isSampled());
     }
 
-    // Floats near 1.7e9 are 2.4e-7 apart: these are .25000075 and .25000025.
+    // Floats near 1.7e9 are 2.4e-7 apart: these are .25000075, .2500005 and .25000025.
     #[TestWith([1761350400.2500007, 1761350400250001000])]
+    #[TestWith([1761350400.2500005, 1761350400250001000])]
     #[TestWith([1761350400.2500002, 1761350400250000000])]
     public function testTimesAreRoundedToTheMicrosecond(float $start, int $nanos): void
     {
