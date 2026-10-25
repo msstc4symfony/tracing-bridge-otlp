@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Profiling;
 
 use Msstc4Symfony\TracingBridgeOtlp\Application\Port\SpanFlushInterface;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\AttributeLimit;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\DatabaseSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanBuffer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
@@ -45,6 +47,8 @@ use Symfony\Component\Messenger\Event\WorkerMessageReceivedEvent;
 #[UsesClass(UnitRecorder::class)]
 #[UsesClass(SpanPlacer::class)]
 #[UsesClass(SpanPlacement::class)]
+#[UsesClass(DatabaseSpan::class)]
+#[UsesClass(AttributeLimit::class)]
 #[UsesClass(SpanMapper::class)]
 #[UsesClass(SpanBuffer::class)]
 #[UsesClass(SpanIds::class)]
@@ -109,6 +113,24 @@ final class OtlpEndSpanProcessorTest extends TestCase
         $this->processor()->process($span, []);
 
         self::assertSame(SpanKind::KIND_INTERNAL, $this->single()->getKind());
+    }
+
+    public function testAnEmptyConnectionIsNoDatabaseClient(): void
+    {
+        $span = $this->created(new StubSpan('SELECT 1', ['connection' => '', 'profiling_automatic' => true, 'trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'a3ce929d0e0e4736']));
+
+        $this->processor()->process($span, []);
+
+        self::assertSame(SpanKind::KIND_INTERNAL, $this->single()->getKind());
+    }
+
+    public function testAnInvalidTraceParentSpanIdIsReported(): void
+    {
+        $span = $this->created(new StubSpan('work', ['trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'xyz']));
+
+        $this->processor()->process($span, []);
+
+        self::assertSame([['level' => 'debug', 'message' => 'Span "{span}" has an invalid trace_parent_span_id; it is exported as a root.', 'context' => ['span' => 'work']]], $this->logger->records);
     }
 
     public function testSkippedNamesAreRememberedUpToALimit(): void
@@ -301,7 +323,7 @@ final class OtlpEndSpanProcessorTest extends TestCase
         };
 
         return new OtlpEndSpanProcessor(
-            new SpanPlacer($this->creations, $this->units, $this->holder, ['request ', 'cli command ', 'message ', 'action ']),
+            new SpanPlacer($this->creations, $this->units, $this->holder, ['request ', 'cli command ', 'message ', 'action '], $this->logger),
             new SpanMapper(new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([]))),
             $this->buffer,
             $flush,

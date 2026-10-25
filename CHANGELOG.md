@@ -15,7 +15,8 @@ All notable changes to this bundle are documented here. The format follows
 - One export per unit of work (`kernel.terminate`, `console.terminate`, worker events) plus an early one at
   `max_buffered_spans`; a failed export logs one warning and pauses exporting for 30 seconds; no retries.
 - The pause is shared through `cache.app` (PHP-FPM children, cron commands); warnings on the `otlp` log channel.
-- String attribute values cut to 4096 bytes (`OTEL_[SPAN_]ATTRIBUTE_VALUE_LENGTH_LIMIT`); span names made valid UTF-8.
+- String attribute values cut to 4096 characters (`OTEL_[SPAN_]ATTRIBUTE_VALUE_LENGTH_LIMIT`, read at runtime); span names
+  made valid UTF-8, attribute keys that are not UTF-8 dropped.
 - Configuration `enabled`, `service_name`, `endpoint`, `protocol`, `timeout_ms`, `max_buffered_spans`; the standard
   `OTEL_EXPORTER_OTLP_*` (endpoint, protocol, headers, compression, certificates), `OTEL_SERVICE_NAME` and
   `OTEL_RESOURCE_ATTRIBUTES` variables as fallbacks.

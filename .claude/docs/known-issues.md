@@ -58,7 +58,9 @@
 - **Имя спана не в UTF-8 роняет весь batch** (`SpanConverter::setName` бросает «Expect utf-8 encoding»): `SpanMapper`
   заменяет байты ≥ 0x80 на `?`, если строка не UTF-8. Значения атрибутов не в UTF-8 проходят как bytes.
 - **Огромное значение атрибута** раздувает batch за лимит приёмника (gRPC 4 MiB) → 4xx → весь batch и пауза:
-  строки режутся до 4096 байт (`AttributeLimit`, переменные OTEL_*ATTRIBUTE_VALUE_LENGTH_LIMIT). NAN/INF отбрасываются
+  строки режутся до 4096 символов (`mb_substr`, как SDK; не-UTF-8 — `substr` по байтам), лимит из
+  OTEL_*ATTRIBUTE_VALUE_LENGTH_LIMIT читается в конструкторе `SpanMapper` во время выполнения (`AttributeLimit`), а не в
+  скомпилированном контейнере. `substr` по байтам резал бы UTF-8 посреди символа → SDK шлёт `bytes_value`. NAN/INF отбрасываются
   (OTLP/JSON их не кодирует).
 - **semconv по типу**: `status` → `http.response.status_code` только int, `exception` → только непустая строка (и
   ERROR тоже), `connection` → `db.namespace` и CLIENT только у DBAL-спанов profiling (маркер `profiling_automatic`).
@@ -72,3 +74,14 @@
 - **Протокол/сжатие из переменных** вне `http/protobuf|http/json|grpc` / `none|gzip` → `LogicException` при первом
   экспорте (как экспорт: warning + пауза).
 - **`CreationRecorder` на приоритете −65536**: должен ключевать итоговую обёртку спана после всех create-процессоров.
+- **`ResettableServicePass` без приоритетов**: порядок `kernel.reset` = порядок регистрации бандлов. `CreationRecorder`
+  поэтому не сбрасывается (WeakMap чистится GC): иначе при мосте раньше ProfilingBundle в bundles.php спаны, которые
+  profiling закрывает в reset, теряли запись создания. Тест `testSpansEndedOnKernelResetGoWithTheNextExport` гоняет оба
+  порядка (`ENV_BRIDGE_FIRST`).
+- **Unit-спан, закрытый profiling в `kernel.reset`** (единица не закрыла свой спан), берёт `holder->current()`; если
+  TracingBundle сбросился раньше, спан попадёт в новую трассу. Редко; не исправлено.
+- **Общая пауза читается из `cache.app` не чаще раза в секунду** (`SHARED_PAUSE_READ_SECONDS`): с Redis иначе лишний
+  запрос на каждую единицу работы.
+- **Сертификаты** читаются через резолверы SDK (`Configuration::has/getString` принимает любые имена): окружение
+  важнее `$_SERVER`.
+- **Ключ атрибута не в UTF-8** роняет конвертер так же, как имя: такие ключи отбрасываются.

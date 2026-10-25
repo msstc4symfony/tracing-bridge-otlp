@@ -122,9 +122,8 @@ final class ExporterSettingsTest extends TestCase
         self::assertSame(['timeout' => 1.0, 'max_duration' => 1.0, 'cafile' => '/etc/ssl/ca.pem', 'local_cert' => '/etc/ssl/traces-client.pem', 'local_pk' => '/etc/ssl/client.key'], $settings->httpClientOptions());
     }
 
-    public function testAServerVariableWinsOverTheEnvironment(): void
+    public function testCertificatesAreReadThroughTheSdkResolversToo(): void
     {
-        putenv('OTEL_EXPORTER_OTLP_CERTIFICATE=/etc/ssl/env.pem');
         $_SERVER['OTEL_EXPORTER_OTLP_CERTIFICATE'] = '/etc/ssl/server.pem';
 
         try {

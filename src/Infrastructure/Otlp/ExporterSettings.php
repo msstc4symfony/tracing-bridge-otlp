@@ -28,7 +28,8 @@ final readonly class ExporterSettings
 
     private const COMPRESSIONS = ['none', 'gzip'];
 
-    // The SDK declares only the CA variables; the client ones come from the OTLP exporter specification.
+    // The SDK declares only the CA variables; the client ones come from the OTLP exporter specification. All are read
+    // through the SDK's resolvers ($_SERVER, environment, php.ini) like the other OTEL_* variables.
     private const CA_FILE = ['OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE', 'OTEL_EXPORTER_OTLP_CERTIFICATE'];
 
     private const CLIENT_CERTIFICATE = ['OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE', 'OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE'];
@@ -148,8 +149,8 @@ final readonly class ExporterSettings
     private static function firstVariable(array $names): ?string
     {
         foreach ($names as $name) {
-            $value = $_SERVER[$name] ?? getenv($name);
-            if (is_string($value) && $value !== '') {
+            $value = Configuration::has($name) ? Configuration::getString($name) : '';
+            if ($value !== '') {
                 return $value;
             }
         }

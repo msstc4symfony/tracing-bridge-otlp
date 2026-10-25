@@ -23,7 +23,14 @@ final class Flusher implements SpanFlushInterface
 {
     public const PAUSE_SECONDS = 30;
 
+    // A pause another process starts is seen within this delay; the cache is not read on every unit of work.
+    public const SHARED_PAUSE_READ_SECONDS = 1;
+
     private const PAUSE_KEY = 'msstc4symfony_tracing_bridge_otlp.paused_until';
+
+    private ?float $sharedPause = null;
+
+    private ?float $sharedPauseReadAt = null;
 
     // Unix time with microseconds.
     private ?float $pausedUntil = null;
@@ -106,13 +113,19 @@ final class Flusher implements SpanFlushInterface
             return null;
         }
 
+        $now = $this->now();
+        if ($this->sharedPauseReadAt !== null && $now - $this->sharedPauseReadAt < self::SHARED_PAUSE_READ_SECONDS) {
+            return $this->sharedPause;
+        }
+
+        $this->sharedPauseReadAt = $now;
         try {
             $value = $this->pauses->getItem(self::PAUSE_KEY)->get();
         } catch (Throwable) {
-            return null;
+            $value = null;
         }
 
-        return is_float($value) ? $value : null;
+        return $this->sharedPause = is_float($value) ? $value : null;
     }
 
     private function sharePause(float $until): void

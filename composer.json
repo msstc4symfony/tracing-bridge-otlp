@@ -61,6 +61,7 @@
     "symfony/event-dispatcher": "^7.4|^8.0",
     "symfony/http-client": "^7.4|^8.0",
     "symfony/http-kernel": "^7.4|^8.0",
+    "symfony/polyfill-mbstring": "^1.23",
     "symfony/service-contracts": "^3.5"
   },
   "require-dev": {

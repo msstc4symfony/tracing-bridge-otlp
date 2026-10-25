@@ -37,10 +37,12 @@ final readonly class SpanIds
             throw new InvalidArgumentException(sprintf('Invalid trace id "%s".', $traceId));
         }
 
-        foreach ([$spanId, $parentSpanId ?? '0000000000000001'] as $id) {
-            if (preg_match(self::SPAN_ID, $id) !== 1) {
-                throw new InvalidArgumentException(sprintf('Invalid span id "%s".', $id));
-            }
+        if (preg_match(self::SPAN_ID, $spanId) !== 1) {
+            throw new InvalidArgumentException(sprintf('Invalid span id "%s".', $spanId));
+        }
+
+        if ($parentSpanId !== null && preg_match(self::SPAN_ID, $parentSpanId) !== 1) {
+            throw new InvalidArgumentException(sprintf('Invalid parent span id "%s".', $parentSpanId));
         }
     }
 }

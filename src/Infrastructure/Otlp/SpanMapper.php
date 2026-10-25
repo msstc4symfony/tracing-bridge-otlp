@@ -28,22 +28,26 @@ final readonly class SpanMapper
         ...DetachedSpanFactoryInterface::AUTOMATIC,
     ];
 
-    private const AUTOMATIC_MARKER = 'profiling_automatic';
-
     private const SERVER_ERROR = 500;
 
     private const MICROS_PER_SECOND = 1_000_000;
 
     private const NANOS_PER_MICRO = 1000;
 
+    /** @var positive-int */
+    private int $valueLengthLimit;
+
     /**
-     * @param positive-int $valueLengthLimit longer strings are cut to this many bytes
+     * @param positive-int|null $valueLengthLimit longer strings are cut to this many characters; null: the
+     *                                            OTEL_*ATTRIBUTE_VALUE_LENGTH_LIMIT variables at runtime, not in the
+     *                                            compiled container
      */
     public function __construct(
         private InstrumentationScopeInterface $scope,
         private ResourceInfo $resource,
-        private int $valueLengthLimit = AttributeLimit::DEFAULT_VALUE_LENGTH,
+        ?int $valueLengthLimit = null,
     ) {
+        $this->valueLengthLimit = $valueLengthLimit ?? AttributeLimit::valueLength();
     }
 
     /**
@@ -81,11 +85,11 @@ final readonly class SpanMapper
     }
 
     /**
-     * The SDK's converter throws on a name that is not UTF-8, which would lose the whole batch.
+     * The OTLP encoder throws on a name or key that is not UTF-8, which would lose the whole batch.
      */
     private function validName(string $name): string
     {
-        return preg_match('//u', $name) === 1 ? $name : (string) preg_replace('/[\x80-\xFF]/', '?', $name);
+        return $this->isUtf8($name) ? $name : (string) preg_replace('/[\x80-\xFF]/', '?', $name);
     }
 
     /**
@@ -97,11 +101,11 @@ final readonly class SpanMapper
     {
         $attributes = [];
         foreach ($context as $key => $value) {
-            if (isset(self::SKIPPED_KEYS[$key]) || !is_scalar($value) || (is_float($value) && !is_finite($value))) {
+            if (isset(self::SKIPPED_KEYS[$key]) || !$this->isUtf8($key) || !is_scalar($value) || (is_float($value) && !is_finite($value))) {
                 continue;
             }
 
-            $attributes['profiling.' . $key] = is_string($value) ? substr($value, 0, $this->valueLengthLimit) : $value;
+            $attributes['profiling.' . $key] = is_string($value) ? $this->cut($value) : $value;
         }
 
         return [...$attributes, ...$this->semconv($context, $responseStatus)];
@@ -119,7 +123,7 @@ final readonly class SpanMapper
         $semconv = [];
         $exception = $this->nonEmptyString($context['exception'] ?? null);
         if ($exception !== null) {
-            $semconv['exception.type'] = substr($exception, 0, $this->valueLengthLimit);
+            $semconv['exception.type'] = $this->cut($exception);
         }
 
         $status = $responseStatus ?? $context['status'] ?? null;
@@ -127,17 +131,30 @@ final readonly class SpanMapper
             $semconv['http.response.status_code'] = $status;
         }
 
-        $connection = $this->nonEmptyString($context['connection'] ?? null);
-        if ($connection !== null && ($context[self::AUTOMATIC_MARKER] ?? false) === true) {
-            $semconv['db.namespace'] = substr($connection, 0, $this->valueLengthLimit);
+        $connection = DatabaseSpan::connection($context);
+        if ($connection !== null) {
+            $semconv['db.namespace'] = $this->cut($connection);
         }
 
         $transport = $this->nonEmptyString($context['transport'] ?? null);
         if ($transport !== null) {
-            $semconv['messaging.destination.name'] = substr($transport, 0, $this->valueLengthLimit);
+            $semconv['messaging.destination.name'] = $this->cut($transport);
         }
 
         return $semconv;
+    }
+
+    /**
+     * Characters of a UTF-8 string, as the SDK counts the limit; bytes of anything else (exported as bytes anyway).
+     */
+    private function cut(string $value): string
+    {
+        return $this->isUtf8($value) ? mb_substr($value, 0, $this->valueLengthLimit, 'UTF-8') : substr($value, 0, $this->valueLengthLimit);
+    }
+
+    private function isUtf8(string $value): bool
+    {
+        return preg_match('//u', $value) === 1;
     }
 
     private function nonEmptyString(mixed $value): ?string

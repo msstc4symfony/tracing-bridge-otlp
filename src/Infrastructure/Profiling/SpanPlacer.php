@@ -6,12 +6,15 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling;
 
 use Msstc4Symfony\ProfilingBundle\Application\DetachedSpanFactoryInterface;
 use Msstc4Symfony\ProfilingBundle\Application\Span\SpanInterface;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\DatabaseSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
 use Msstc4Symfony\TracingBridgeProfiling\Infrastructure\Tracing\TraceSpanKeys;
 use Msstc4Symfony\TracingBundle\Application\Port\TraceContextHolderInterface;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceContext;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceParent;
 use OpenTelemetry\API\Trace\SpanKind;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 /**
  * Finds the ids of an ended profiling span:
@@ -42,6 +45,7 @@ final readonly class SpanPlacer
         private UnitRecorder $units,
         private TraceContextHolderInterface $holder,
         private array $unitSpanPrefixes,
+        private LoggerInterface $logger = new NullLogger(),
     ) {
     }
 
@@ -83,9 +87,15 @@ final readonly class SpanPlacer
         $context = $span->getContext();
         $spanId = $this->spanId($context[TraceSpanKeys::SPAN_ID] ?? null);
         if ($spanId !== null) {
-            $ids = $this->ids($trace, $spanId, $this->spanId($context[TraceSpanKeys::PARENT_SPAN_ID] ?? null), false);
+            $givenParent = $context[TraceSpanKeys::PARENT_SPAN_ID] ?? null;
+            $parent = $this->spanId($givenParent);
+            if ($givenParent !== null && $parent === null) {
+                $this->logger->debug('Span "{span}" has an invalid trace_parent_span_id; it is exported as a root.', ['span' => $span->getMessage()]);
+            }
 
-            return new SpanPlacement($ids, $this->matches($context, DetachedSpanFactoryInterface::AUTOMATIC) && isset($context['connection']) ? SpanKind::KIND_CLIENT : SpanKind::KIND_INTERNAL, null);
+            $kind = DatabaseSpan::connection($context) !== null ? SpanKind::KIND_CLIENT : SpanKind::KIND_INTERNAL;
+
+            return new SpanPlacement($this->ids($trace, $spanId, $parent, false), $kind, null);
         }
 
         if ($this->matches($context, DetachedSpanFactoryInterface::DETACHED)) {

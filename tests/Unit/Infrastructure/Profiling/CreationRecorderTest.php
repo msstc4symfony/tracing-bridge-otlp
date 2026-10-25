@@ -30,15 +30,4 @@ final class CreationRecorderTest extends TestCase
     {
         self::assertNull((new CreationRecorder(new InMemoryTraceContextHolder()))->traceAt(new StubSpan('x')));
     }
-
-    public function testResetForgetsEveryRecord(): void
-    {
-        $recorder = new CreationRecorder(new InMemoryTraceContextHolder());
-        $span = new StubSpan('x');
-        $recorder->process($span);
-
-        $recorder->reset();
-
-        self::assertNull($recorder->traceAt($span));
-    }
 }

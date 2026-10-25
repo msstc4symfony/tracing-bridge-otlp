@@ -17,6 +17,7 @@ use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use Override;
+use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
@@ -142,13 +143,16 @@ final class KernelExportTest extends TestCase
         self::assertSame($unit->getSpanId(), $work->getParentSpanId());
     }
 
-    public function testSpansEndedOnKernelResetGoWithTheNextExport(): void
+    #[TestWith(['test'])]
+    #[TestWith([TestKernel::ENV_BRIDGE_FIRST])]
+    public function testSpansEndedOnKernelResetGoWithTheNextExport(string $environment): void
     {
-        $kernel = $this->boot();
+        $kernel = $this->boot($environment);
         $profiling = $this->testContainer()->get(ProfilingFactoryInterface::class);
         self::assertInstanceOf(ProfilingFactoryInterface::class, $profiling);
         $request = Request::create('/traced');
         $kernel->terminate($request, $kernel->handle($request));
+        $firstTrace = $this->exportedByName()['request traced']->getTraceId();
         $profiling->createSpan('left open');
 
         $resetter = $this->testContainer()->get('services_resetter');
@@ -157,7 +161,7 @@ final class KernelExportTest extends TestCase
         $request = Request::create('/traced');
         $kernel->terminate($request, $kernel->handle($request));
 
-        self::assertArrayHasKey('left open', $this->exportedByName());
+        self::assertSame($firstTrace, ($this->exportedByName()['left open'] ?? null)?->getTraceId());
     }
 
     public function testDisabledRegistersNoService(): void

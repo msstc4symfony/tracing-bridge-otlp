@@ -56,7 +56,8 @@ Every span profiling records, once it ends, when its trace is sampled:
 - Attributes: every scalar context value as `profiling.<key>`, plus the semantic convention names
   `exception.type` (a non-empty string `exception`), `http.response.status_code` (an integer `status`, and the
   response code of a request span), `db.namespace` (`connection` of a DBAL span) and `messaging.destination.name`
-  (`transport`). Arrays, objects, enums, `null`, NAN and INF are dropped; strings are cut to 4096 bytes
+  (`transport`). Arrays, objects, enums, `null`, NAN and INF are dropped, and so are keys that are not UTF-8; strings
+  are cut to 4096 characters (bytes for a string that is not UTF-8)
   (`OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT` / `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`), so one huge value cannot push the
   batch over the receiver's size limit. The bridge adds nothing profiling did not record (no SQL text, no query string).
 - Status: ERROR with a non-empty `exception`, `message_failed: true` or an HTTP status of 500 and above; otherwise
@@ -84,7 +85,7 @@ The export never throws into the application. A failed export (receiver down, ti
 batch, a wrong endpoint or protocol) logs one `warning` on the `otlp` channel with the number of dropped spans, and
 exporting pauses for 30 seconds: the spans of that time are dropped and counted in the next log record (`info` when
 exporting resumes). There are no retries. The pause is shared through the `cache.app` pool, so PHP-FPM children and
-cron commands wait too; without that pool it holds per process. The cost of a down receiver is at most `timeout_ms`
+cron commands wait too (each process reads the pool at most once a second); without that pool it holds per process. The cost of a down receiver is at most `timeout_ms`
 once per pause and process sharing the cache.
 
 The exporter has its own HTTP client: the application's `http_client` is traced and profiled, so the export would trace

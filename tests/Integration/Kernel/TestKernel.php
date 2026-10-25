@@ -33,6 +33,9 @@ final class TestKernel extends Kernel
 
     public const ENV_DISABLED = 'disabled';
 
+    // The bridge before profiling-bundle: services are reset in registration order.
+    public const ENV_BRIDGE_FIRST = 'bridge_first';
+
     // Per process: parallel PHPUnit runs must not wipe each other's container.
     public static function cacheRoot(): string
     {
@@ -42,6 +45,10 @@ final class TestKernel extends Kernel
     #[Override]
     public function registerBundles(): iterable
     {
+        if ($this->environment === self::ENV_BRIDGE_FIRST) {
+            return [new FrameworkBundle(), new MonologBundle(), new TracingBridgeOtlpBundle(), new TracingBridgeProfilingBundle(), new TracingBundle(), new ProfilingBundle()];
+        }
+
         return [new FrameworkBundle(), new MonologBundle(), new TracingBundle(), new ProfilingBundle(), new TracingBridgeProfilingBundle(), new TracingBridgeOtlpBundle()];
     }
 

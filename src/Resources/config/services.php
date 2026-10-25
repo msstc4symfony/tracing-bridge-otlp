@@ -56,11 +56,11 @@ return static function (ContainerConfigurator $container): void {
     $services->set(CreationRecorder::class)
         ->autoconfigure(false)
         ->tag(CreateSpanProcessorInterface::class, ['priority' => -65536])
-        ->tag('kernel.reset', ['method' => 'reset'])
     ;
     $services->set(UnitRecorder::class);
     $services->set(SpanPlacer::class)
         ->arg('$unitSpanPrefixes', param('msstc4symfony_tracing_bridge_profiling.unit_span_prefixes'))
+        ->tag('monolog.logger', ['channel' => 'otlp'])
     ;
     $services->set(OtlpEndSpanProcessor::class)
         ->arg('$flush', service(Flusher::class))

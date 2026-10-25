@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\AttributeLimit;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\DatabaseSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanMapper;
@@ -23,6 +25,8 @@ use stdClass;
 #[CoversClass(SpanMapper::class)]
 #[UsesClass(ExportedSpan::class)]
 #[UsesClass(SpanIds::class)]
+#[UsesClass(AttributeLimit::class)]
+#[UsesClass(DatabaseSpan::class)]
 final class SpanMapperTest extends TestCase
 {
     private const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';
@@ -166,11 +170,47 @@ final class SpanMapperTest extends TestCase
         self::assertSame(200, $attributes['http.response.status_code'] ?? null);
     }
 
-    public function testTheDefaultLimitIs4096Bytes(): void
+    public function testTheDefaultLimitIs4096Characters(): void
     {
-        $attributes = $this->mapper()->map(new StubSpan('x', ['payload' => str_repeat('a', 5000)]), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+        $attributes = $this->mapper()->map(new StubSpan('x', ['payload' => str_repeat('é', 5000)]), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
 
-        self::assertSame(str_repeat('a', 4096), $attributes['profiling.payload'] ?? null);
+        self::assertSame(str_repeat('é', 4096), $attributes['profiling.payload'] ?? null);
+    }
+
+    public function testTheLimitComesFromTheEnvironmentWhenNotGiven(): void
+    {
+        putenv('OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT=3');
+
+        try {
+            $attributes = $this->mapper()->map(new StubSpan('x', ['payload' => 'abcdef']), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+        } finally {
+            putenv('OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT');
+        }
+
+        self::assertSame('abc', $attributes['profiling.payload'] ?? null);
+    }
+
+    public function testMultibyteStringsAreCutBetweenCharacters(): void
+    {
+        $mapper = new SpanMapper(new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([])), 3);
+
+        $attributes = $mapper->map(new StubSpan('x', ['city' => 'Zürich', 'bytes' => "\xff\xfe\xfd\xfc"]), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+
+        self::assertSame(['profiling.city' => 'Zür', 'profiling.bytes' => "\xff\xfe\xfd"], $attributes);
+    }
+
+    public function testAKeyThatIsNotUtf8IsDropped(): void
+    {
+        $attributes = $this->mapper()->map(new StubSpan('x', ["bad\xff" => 1, 'ok' => 2]), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+
+        self::assertSame(['profiling.ok' => 2], $attributes);
+    }
+
+    public function testAConnectionThatIsNotANonEmptyStringIsNoDatabase(): void
+    {
+        $attributes = $this->mapper()->map(new StubSpan('x', ['connection' => '', 'profiling_automatic' => true]), [], $this->ids(), SpanKind::KIND_INTERNAL, null)->getAttributes()->toArray();
+
+        self::assertArrayNotHasKey('db.namespace', $attributes);
     }
 
     #[TestWith([NAN])]

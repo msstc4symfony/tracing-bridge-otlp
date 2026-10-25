@@ -153,6 +153,33 @@ final class FlusherTest extends TestCase
         self::assertCount(1, $this->exporter->batches);
     }
 
+    public function testTheSharedPauseIsReadAtMostOncePerSecond(): void
+    {
+        $pauses = new class extends ArrayAdapter {
+            public int $reads = 0;
+
+            #[Override]
+            public function getItem(mixed $key): CacheItem
+            {
+                $this->reads++;
+
+                return parent::getItem($key);
+            }
+        };
+        $flusher = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses);
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->fill(1);
+            $flusher->flush();
+        }
+
+        self::assertSame(1, $pauses->reads);
+        $this->clock->sleep(Flusher::SHARED_PAUSE_READ_SECONDS);
+        $this->fill(1);
+        $flusher->flush();
+        self::assertSame(2, $pauses->reads);
+    }
+
     public function testABrokenCacheLeavesThePauseToTheProcess(): void
     {
         $pauses = new class extends ArrayAdapter {
