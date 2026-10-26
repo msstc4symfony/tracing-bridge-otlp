@@ -222,6 +222,24 @@ final class KernelExportTest extends TestCase
         self::assertCount(1, $exporter->batches);
     }
 
+    public function testAConfiguredPausePoolHoldsThePause(): void
+    {
+        $kernel = $this->boot(TestKernel::ENV_PAUSE_POOL);
+
+        for ($i = 0; $i < 2; $i++) {
+            $request = Request::create('/traced');
+            $kernel->terminate($request, $kernel->handle($request));
+        }
+
+        $pauses = $this->testContainer()->get(TestKernel::PAUSE_POOL);
+        self::assertInstanceOf(CountingPool::class, $pauses);
+        // The first unit reads the pause, then fetches the item to save it; the second one reuses the first read.
+        self::assertSame([2, 1], [$pauses->lookups(), $pauses->writes()]);
+        $exporter = $this->testContainer()->get(TestKernel::EXPORTER);
+        self::assertInstanceOf(RecordingExporter::class, $exporter);
+        self::assertCount(1, $exporter->batches);
+    }
+
     public function testDisabledRegistersNoService(): void
     {
         $kernel = $this->boot(TestKernel::ENV_DISABLED);

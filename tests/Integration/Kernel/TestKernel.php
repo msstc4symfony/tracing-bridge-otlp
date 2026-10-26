@@ -22,11 +22,13 @@ use Override;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
 use Symfony\Bundle\MonologBundle\MonologBundle;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
+use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
 final class TestKernel extends Kernel
@@ -40,6 +42,11 @@ final class TestKernel extends Kernel
     public const COUNTING_CACHE_APP = 'test.counting_cache_app';
 
     public const ENV_FAILING_EXPORT = 'failing_export';
+
+    // A failing export with the pause in a pool of the application's choice.
+    public const ENV_PAUSE_POOL = 'pause_pool';
+
+    public const PAUSE_POOL = 'test.pause_pool';
 
     // The bridge before profiling-bundle: services are reset in registration order.
     public const ENV_BRIDGE_FIRST = 'bridge_first';
@@ -100,6 +107,9 @@ final class TestKernel extends Kernel
         if ($this->environment === self::ENV_DISABLED) {
             $container->extension('msstc4symfony_tracing_bridge_otlp', ['enabled' => false]);
         }
+        if ($this->environment === self::ENV_PAUSE_POOL) {
+            $container->extension('msstc4symfony_tracing_bridge_otlp', ['pause_pool' => self::PAUSE_POOL]);
+        }
 
         $services = $container->services();
         $services->defaults()->autowire()->autoconfigure();
@@ -113,7 +123,11 @@ final class TestKernel extends Kernel
             ->args([service('.inner')])
             ->public()
         ;
-        if ($this->environment === self::ENV_FAILING_EXPORT) {
+        $services->set(self::PAUSE_POOL, CountingPool::class)
+            ->args([inline_service(ArrayAdapter::class)])
+            ->public()
+        ;
+        if (in_array($this->environment, [self::ENV_FAILING_EXPORT, self::ENV_PAUSE_POOL], true)) {
             $services->set(self::EXPORTER, RecordingExporter::class)->args([false])->public();
         } elseif ($this->environment !== self::ENV_DISABLED) {
             $services->set(self::EXPORTER, InMemoryExporter::class)->public();

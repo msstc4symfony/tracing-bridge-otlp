@@ -19,6 +19,7 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  *     protocol: 'http/protobuf'|'http/json'|'grpc'|null,
  *     timeout_ms: positive-int,
  *     max_buffered_spans: positive-int,
+ *     pause_pool: non-empty-string|null,
  * }
  */
 final class TracingBridgeOtlpBundle extends AbstractBundle
@@ -64,6 +65,11 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
                     ->min(1)
                     ->defaultValue(2048)
                 ->end()
+                ->stringNode('pause_pool')
+                    ->info('PSR-6 pool (service id) sharing the pause after a failed export between hosts; ~: files in kernel.share_dir (else kernel.cache_dir), shared by the processes on one host.')
+                    ->defaultNull()
+                    ->cannotBeEmpty()
+                ->end()
             ->end()
         ;
     }
@@ -91,9 +97,11 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
             $builder->setParameter(self::PARAMETER_PREFIX . $key, $value);
         }
 
-        // kernel.share_dir (Symfony 7.4+, unless APP_SHARE_DIR=false) is meant for data shared by the front servers.
-        $baseDir = $builder->hasParameter('kernel.share_dir') ? '%kernel.share_dir%' : '%kernel.cache_dir%';
-        $builder->setParameter(self::PARAMETER_PREFIX . 'pause_dir', $baseDir . '/' . $this->extensionAlias);
+        if ($config['pause_pool'] === null) {
+            // kernel.share_dir (Symfony 7.4+, unless APP_SHARE_DIR=false) is meant for data shared by the front servers.
+            $baseDir = $builder->hasParameter('kernel.share_dir') ? '%kernel.share_dir%' : '%kernel.cache_dir%';
+            $builder->setParameter(self::PARAMETER_PREFIX . 'pause_dir', $baseDir . '/' . $this->extensionAlias);
+        }
 
         $container->import(__DIR__ . '/Resources/config/services.php');
     }

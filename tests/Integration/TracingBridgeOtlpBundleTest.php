@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Exception\ServiceNotFoundException;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBag;
 
@@ -48,6 +49,14 @@ final class TracingBridgeOtlpBundleTest extends TestCase
         $logger = $arguments[0] ?? null;
         self::assertInstanceOf(Definition::class, $logger);
         self::assertSame(NullLogger::class, $logger->getClass());
+    }
+
+    public function testAPausePoolThatIsNoServiceFailsTheBuild(): void
+    {
+        $this->expectException(ServiceNotFoundException::class);
+        $this->expectExceptionMessage('app.missing_pool');
+
+        TestContainer::compile(['pause_pool' => 'app.missing_pool']);
     }
 
     public function testAConfiguredGrpcProtocolNeedsItsTransportAtBuildTime(): void

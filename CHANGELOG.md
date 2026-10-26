@@ -4,6 +4,13 @@ All notable changes to this bundle are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow
 [Semantic Versioning](https://semver.org/); dates are UTC.
 
+## [1.1.0] - 2026-10-26
+
+### Added
+
+- `pause_pool`: a PSR-6 pool service id holding the export pause, so the hosts sharing the pool share the pause.
+  An id that is no service fails the container build. Without it the pause stays in the filesystem cache of 1.0.1.
+
 ## [1.0.1] - 2026-10-25
 
 ### Fixed

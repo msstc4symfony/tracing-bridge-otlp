@@ -26,6 +26,7 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
             'protocol' => null,
             'timeout_ms' => 1000,
             'max_buffered_spans' => 2048,
+            'pause_pool' => null,
         ], $this->process([]));
     }
 
@@ -38,6 +39,7 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
             'protocol' => 'http/json',
             'timeout_ms' => 300,
             'max_buffered_spans' => 10,
+            'pause_pool' => 'cache.otlp_pause',
         ], $this->process([
             'enabled' => false,
             'service_name' => 'orders',
@@ -45,6 +47,7 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
             'protocol' => 'http/json',
             'timeout_ms' => 300,
             'max_buffered_spans' => 10,
+            'pause_pool' => 'cache.otlp_pause',
         ]));
     }
 
@@ -63,6 +66,7 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
     #[TestWith([['max_buffered_spans' => 0]])]
     #[TestWith([['service_name' => '']])]
     #[TestWith([['endpoint' => '']])]
+    #[TestWith([['pause_pool' => '']])]
     public function testRejectsInvalidValues(array $config): void
     {
         $this->expectException(InvalidConfigurationException::class);

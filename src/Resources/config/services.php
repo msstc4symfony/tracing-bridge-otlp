@@ -20,6 +20,7 @@ use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use Psr\Log\NullLogger;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Clock\NativeClock;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
@@ -27,9 +28,10 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
 
-return static function (ContainerConfigurator $container): void {
+return static function (ContainerConfigurator $container, ContainerBuilder $builder): void {
     $prefix = TracingBridgeOtlpBundle::PARAMETER_PREFIX;
     $exporter = $prefix . 'exporter';
+    $pausePool = $builder->getParameter($prefix . 'pause_pool');
 
     $services = $container->services();
     $services->defaults()->autowire()->autoconfigure();
@@ -50,8 +52,8 @@ return static function (ContainerConfigurator $container): void {
     $services->set(Flusher::class)
         ->arg('$exporterFactory', service_closure($exporter))
         ->arg('$clock', inline_service(NativeClock::class))
-        // Not cache.app: its lookups are application metrics, and every flush would count as one.
-        ->arg('$pauses', inline_service(FilesystemAdapter::class)
+        // Not cache.app by default: its lookups are application metrics, and every flush would count as one.
+        ->arg('$pauses', is_string($pausePool) ? service($pausePool) : inline_service(FilesystemAdapter::class)
             ->args(['', 0, param($prefix . 'pause_dir')])
             // An unwritable directory leaves the pause per process; the adapter must not warn about it.
             ->call('setLogger', [inline_service(NullLogger::class)]))

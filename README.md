@@ -91,6 +91,24 @@ long-running worker at most once a second. The application's cache pools are not
 the directory is not writable the pause holds per process. The cost of a down receiver is at most `timeout_ms` once per
 pause and directory: typically a host or a container, several hosts when `share_dir` is a shared volume.
 
+To share the pause between hosts, point `pause_pool` at a PSR-6 pool they share, for example a dedicated pool on Redis:
+
+```yaml
+framework:
+    cache:
+        pools:
+            otlp_pause:
+                adapter: cache.adapter.redis
+                provider: '%env(REDIS_DSN)%'
+
+msstc4symfony_tracing_bridge_otlp:
+    pause_pool: otlp_pause
+```
+
+Then a down receiver costs `timeout_ms` once per pause for the whole cluster. Prefer a pool of its own, left out of
+cache metrics (metrics-bundle `cache.pools`): a counted pool records one lookup per PHP-FPM request and at most one a
+second per worker. A pool that fails holds the pause per process.
+
 The exporter has its own HTTP client: the application's `http_client` is traced and profiled, so the export would trace
 itself. Install `ext-curl`: the native HTTP client resolves host names without a timeout.
 
@@ -105,6 +123,7 @@ msstc4symfony_tracing_bridge_otlp:
     protocol: ~              # http/protobuf | http/json | grpc; ~: the variables below, else http/protobuf
     timeout_ms: 1000         # whole export request
     max_buffered_spans: 2048 # spans per unit of work before an early export
+    pause_pool: ~            # PSR-6 pool service id for the export pause; ~: files in kernel.share_dir (one host)
 ```
 
 Environment variables honoured: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (used as is) and `OTEL_EXPORTER_OTLP_ENDPOINT`,
