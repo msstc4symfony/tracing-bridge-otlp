@@ -57,7 +57,8 @@ final class TracingBridgeOtlpBundleTest extends TestCase
         $container = $this->load(['kernel.cache_dir' => '/srv/cache'], ['pause_pool' => 'app.pause_pool']);
 
         self::assertFalse($container->hasParameter(self::PAUSE_DIR));
-        self::assertEquals(new Reference('app.pause_pool'), $container->getDefinition(Flusher::class)->getArgument('$pauses'));
+        $pauses = $container->getDefinition(Flusher::class)->getArgument('$pauses');
+        self::assertEquals(new Reference('app.pause_pool'), $pauses);
     }
 
     public function testAPausePoolThatIsNoServiceFailsTheBuild(): void

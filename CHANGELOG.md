@@ -12,6 +12,11 @@ All notable changes to this bundle are documented here. The format follows
   An id that is no service, or one written with `@`, fails the container build. The hosts must share
   `framework.cache.prefix_seed`. Without it the pause stays in the filesystem cache of 1.0.1.
 
+### Fixed
+
+- An explicit `~` for `service_name`, `endpoint` or `pause_pool` (as the README shows, or to reset a value of another
+  configuration file) failed configuration processing: the string nodes turned it into `""` and rejected it.
+
 ## [1.0.1] - 2026-10-25
 
 ### Fixed

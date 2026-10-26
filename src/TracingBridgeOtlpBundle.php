@@ -40,15 +40,17 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
                     ->info('false: no export service is registered.')
                     ->defaultTrue()
                 ->end()
-                ->stringNode('service_name')
+                ->scalarNode('service_name')
                     ->info('service.name of the exported spans; ~: OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES, else the basename of kernel.project_dir.')
                     ->defaultNull()
-                    ->cannotBeEmpty()
+                    // Not stringNode()->cannotBeEmpty(): it turns an explicit ~ into "" and rejects it.
+                    ->validate()->ifTrue(self::isNoName(...))->thenInvalid('A non-empty string or ~ expected, %s given.')->end()
                 ->end()
-                ->stringNode('endpoint')
+                ->scalarNode('endpoint')
                     ->info('Base URL like OTEL_EXPORTER_OTLP_ENDPOINT (/v1/traces is appended for HTTP); ~: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, OTEL_EXPORTER_OTLP_ENDPOINT, http://localhost:4318.')
                     ->defaultNull()
-                    ->cannotBeEmpty()
+                    // Not stringNode()->cannotBeEmpty(): it turns an explicit ~ into "" and rejects it.
+                    ->validate()->ifTrue(self::isNoName(...))->thenInvalid('A non-empty string or ~ expected, %s given.')->end()
                 ->end()
                 ->enumNode('protocol')
                     ->info('~: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL, OTEL_EXPORTER_OTLP_PROTOCOL, http/protobuf. grpc needs open-telemetry/transport-grpc.')
@@ -65,13 +67,12 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
                     ->min(1)
                     ->defaultValue(2048)
                 ->end()
-                ->stringNode('pause_pool')
+                ->scalarNode('pause_pool')
                     ->info('PSR-6 pool (service id) sharing the pause after a failed export between hosts; ~: files in kernel.share_dir (else kernel.cache_dir), shared by the processes on one host.')
                     ->defaultNull()
-                    ->cannotBeEmpty()
                     ->validate()
-                        ->ifTrue(static fn (string $pool): bool => str_starts_with($pool, '@'))
-                        ->thenInvalid('pause_pool is a service id without "@", %s given.')
+                        ->ifTrue(static fn (mixed $pool): bool => self::isNoName($pool) || (is_string($pool) && str_starts_with($pool, '@')))
+                        ->thenInvalid('pause_pool is a service id without "@" or ~, %s given.')
                     ->end()
                 ->end()
             ->end()
@@ -108,5 +109,10 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
         }
 
         $container->import(__DIR__ . '/Resources/config/services.php');
+    }
+
+    private static function isNoName(mixed $value): bool
+    {
+        return $value !== null && (!is_string($value) || $value === '');
     }
 }

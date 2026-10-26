@@ -22,6 +22,7 @@ use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\DependencyInjection\Loader\Configurator\InlineServiceConfigurator;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
@@ -32,6 +33,12 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $prefix = TracingBridgeOtlpBundle::PARAMETER_PREFIX;
     $exporter = $prefix . 'exporter';
     $pausePool = $builder->getParameter($prefix . 'pause_pool');
+    // Not cache.app by default: its lookups are application metrics, and every flush would count as one.
+    $pauseFiles = static fn (): InlineServiceConfigurator => inline_service(FilesystemAdapter::class)
+        ->args(['', 0, param($prefix . 'pause_dir')])
+        // An unwritable directory leaves the pause per process; the adapter must not warn about it.
+        ->call('setLogger', [inline_service(NullLogger::class)])
+    ;
 
     $services = $container->services();
     $services->defaults()->autowire()->autoconfigure();
@@ -49,16 +56,10 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(SpanBuffer::class)
         ->arg('$capacity', param($prefix . 'max_buffered_spans'))
     ;
-    // Not cache.app by default: its lookups are application metrics, and every flush would count as one.
-    $pauseFiles = inline_service(FilesystemAdapter::class)
-        ->args(['', 0, param($prefix . 'pause_dir')])
-        // An unwritable directory leaves the pause per process; the adapter must not warn about it.
-        ->call('setLogger', [inline_service(NullLogger::class)])
-    ;
     $services->set(Flusher::class)
         ->arg('$exporterFactory', service_closure($exporter))
         ->arg('$clock', inline_service(NativeClock::class))
-        ->arg('$pauses', is_string($pausePool) ? service($pausePool) : $pauseFiles)
+        ->arg('$pauses', is_string($pausePool) ? service($pausePool) : $pauseFiles())
         ->tag('monolog.logger', ['channel' => 'otlp'])
     ;
     // Last of the create processors: it must key the span object end processors receive, after every wrapper

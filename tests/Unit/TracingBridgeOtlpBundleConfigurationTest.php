@@ -58,6 +58,20 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
         self::assertSame(['http/protobuf', 1, 1], [$config['protocol'] ?? null, $config['timeout_ms'] ?? null, $config['max_buffered_spans'] ?? null]);
     }
 
+    public function testAnExplicitTildeKeepsTheDefault(): void
+    {
+        $config = $this->process(['service_name' => null, 'endpoint' => null, 'pause_pool' => null]);
+
+        self::assertSame(['service_name' => null, 'endpoint' => null, 'pause_pool' => null], array_intersect_key($config, ['service_name' => 0, 'endpoint' => 0, 'pause_pool' => 0]));
+    }
+
+    public function testALaterTildeResetsAnEarlierValue(): void
+    {
+        $config = $this->process(['service_name' => 'orders', 'pause_pool' => 'cache.otlp_pause'], ['service_name' => null, 'pause_pool' => null]);
+
+        self::assertSame(['service_name' => null, 'pause_pool' => null], array_intersect_key($config, ['service_name' => 0, 'pause_pool' => 0]));
+    }
+
     /**
      * @param array<string, bool|int|string|null> $config
      */
@@ -68,6 +82,9 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
     #[TestWith([['endpoint' => '']])]
     #[TestWith([['pause_pool' => '']])]
     #[TestWith([['pause_pool' => '@otlp_pause']])]
+    #[TestWith([['pause_pool' => 1]])]
+    #[TestWith([['service_name' => 1]])]
+    #[TestWith([['endpoint' => true]])]
     public function testRejectsInvalidValues(array $config): void
     {
         $this->expectException(InvalidConfigurationException::class);
@@ -77,16 +94,17 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
 
     /**
      * @param array<string, bool|int|string|null> $config
+     * @param array<string, bool|int|string|null> ...$more later configuration files
      *
      * @return array<array-key, mixed>
      */
-    private function process(array $config): array
+    private function process(array $config, array ...$more): array
     {
         $extension = (new TracingBridgeOtlpBundle())->getContainerExtension();
         self::assertInstanceOf(ConfigurationExtensionInterface::class, $extension);
         $configuration = $extension->getConfiguration([], new ContainerBuilder());
         self::assertInstanceOf(ConfigurationInterface::class, $configuration);
 
-        return (new Processor())->processConfiguration($configuration, [$config]);
+        return (new Processor())->processConfiguration($configuration, [$config, ...$more]);
     }
 }
