@@ -117,4 +117,7 @@
   Config оборачивает в `InvalidConfigurationException`). `pause_pool` с `%env()%` отклоняется в `loadExtension()`
   (`resolveEnvPlaceholders($v, '%%env(%s)%%') !== $v` → `LogicException`): иначе `service()` получал id плейсхолдера
   `env_<hash>_…` и сборка падала непонятным `ServiceNotFoundException`.
+  `service_name: .nan` проходит конфиг как float NAN: `BaseNode::finalize` принимает его за плейсхолдер (NAN !== NAN)
+  и validate-замыкания не зовёт → `TypeError` в `ResourceFactory` при первом создании. Квирк Symfony, как у
+  `sampling.ratio` в tracing-bundle; не лечим.
 - **Тест на `cache.app`** поведенческий: `TestKernel` декорирует `cache.app` `CountingPool`, после запроса обращений 0.

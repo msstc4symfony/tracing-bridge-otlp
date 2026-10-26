@@ -125,7 +125,7 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
     private function optionalString(bool|float|int|string|null $value): ?string
     {
         if ($value !== null && !is_string($value)) {
-            throw new InvalidArgumentException(sprintf('A string or ~ expected (an env placeholder must resolve to a string), %s given.', json_encode($value)));
+            throw new InvalidArgumentException(sprintf('A string or ~ expected (an env placeholder must resolve to a string), %s given.', get_debug_type($value)));
         }
 
         return $value === '' ? null : $value;

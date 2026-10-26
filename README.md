@@ -84,7 +84,7 @@ export.
 The export never throws into the application. A failed export (receiver down, timeout, rejected or partially rejected
 batch, a wrong endpoint or protocol) logs one `warning` on the `otlp` channel with the number of dropped spans, and
 exporting pauses for 30 seconds: the spans of that time are dropped and counted in the next log record (`info` when
-exporting resumes). There are no retries. The pause is shared through a filesystem cache in
+exporting resumes). There are no retries. Without `pause_pool`, the pause is shared through a filesystem cache in
 `%kernel.share_dir%/msstc4symfony_tracing_bridge_otlp` (`%kernel.cache_dir%/…` when the kernel has no share dir), so
 the PHP-FPM children, cron commands and workers using that directory wait too: a PHP-FPM request reads it once, a
 long-running worker at most once a second. The application's cache pools are not used: their lookups are metrics. When
@@ -109,7 +109,8 @@ Then a down receiver costs `timeout_ms` once per pause for the whole cluster. Th
 The hosts must share `framework.cache.prefix_seed`: a pool's key namespace derives from it, and it defaults to the
 project directory, which differs between release directories. Prefer a pool of its own, left out of cache metrics
 (metrics-bundle `cache.pools`): a counted pool records one lookup per PHP-FPM request and at most one a second per
-worker. Each of those lookups is a round trip, at the end of the unit of work: give the Redis provider a short
+worker. The hosts compare the pause with their clocks, so they need synced clocks (NTP). Each of those lookups is a
+round trip, at the end of the unit of work: give the Redis provider a short
 `timeout`. A pool that fails holds the pause per process.
 
 The exporter has its own HTTP client: the application's `http_client` is traced and profiled, so the export would trace
@@ -130,7 +131,8 @@ msstc4symfony_tracing_bridge_otlp:
 ```
 
 `service_name` and `endpoint` take env placeholders (`'%env(OTLP_ENDPOINT)%'`); an empty value means unset, as an
-empty `OTEL_*` variable does. `pause_pool` is a service id, fixed when the container is built: no placeholder.
+empty `OTEL_*` variable does. `pause_pool` is a service id, fixed when the container is built: no placeholder; an
+empty one keeps the filesystem cache.
 
 Environment variables honoured: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (used as is) and `OTEL_EXPORTER_OTLP_ENDPOINT`,
 `OTEL_EXPORTER_OTLP[_TRACES]_PROTOCOL` (`http/protobuf`, `http/json`, `grpc`), `OTEL_EXPORTER_OTLP[_TRACES]_HEADERS`,

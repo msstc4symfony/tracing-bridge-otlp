@@ -75,6 +75,14 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
         self::assertSame(['service_name' => null, 'endpoint' => null, 'pause_pool' => null], array_intersect_key($config, ['service_name' => 0, 'endpoint' => 0, 'pause_pool' => 0]));
     }
 
+    public function testANonStringNamesEnvPlaceholders(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('A string or ~ expected (an env placeholder must resolve to a string), int given.');
+
+        $this->process(['service_name' => 1]);
+    }
+
     public function testAnEmptyStringIsUnset(): void
     {
         $config = $this->process(['service_name' => '', 'endpoint' => '', 'pause_pool' => '']);
