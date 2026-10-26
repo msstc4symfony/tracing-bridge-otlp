@@ -63,7 +63,7 @@ final readonly class ExporterSettings
     }
 
     /**
-     * @param non-empty-string|null $endpoint base URL; null: the OTEL_EXPORTER_OTLP_* variables
+     * @param string|null $endpoint base URL; null or "" (an empty env placeholder): the OTEL_EXPORTER_OTLP_* variables
      * @param 'http/protobuf'|'http/json'|'grpc'|null $protocol null: the OTEL_EXPORTER_OTLP_* variables
      * @param positive-int $timeoutMs
      *
@@ -72,6 +72,7 @@ final readonly class ExporterSettings
     public static function resolve(?string $endpoint, ?string $protocol, int $timeoutMs): self
     {
         $protocol ??= self::protocolFromEnvironment();
+        $endpoint = $endpoint === '' ? null : $endpoint;
 
         return new self(
             $protocol,

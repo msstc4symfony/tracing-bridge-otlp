@@ -51,6 +51,11 @@ final class ResourceFactoryTest extends TestCase
         self::assertSame('billing', ResourceFactory::resource(null, '/srv/billing')->getAttributes()->get('service.name'));
     }
 
+    public function testAnEmptyNameIsUnset(): void
+    {
+        self::assertSame('billing', ResourceFactory::resource('', '/srv/billing')->getAttributes()->get('service.name'));
+    }
+
     public function testTheScopeIsThisPackage(): void
     {
         $scope = ResourceFactory::scope();

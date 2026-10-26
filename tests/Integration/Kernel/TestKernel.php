@@ -109,10 +109,6 @@ final class TestKernel extends Kernel
         }
         if ($this->environment === self::ENV_PAUSE_POOL) {
             $container->extension('msstc4symfony_tracing_bridge_otlp', ['pause_pool' => self::PAUSE_POOL]);
-            $container->services()->set(self::PAUSE_POOL, CountingPool::class)
-                ->args([inline_service(ArrayAdapter::class)])
-                ->public()
-            ;
         }
 
         $services = $container->services();
@@ -127,6 +123,9 @@ final class TestKernel extends Kernel
             ->args([service('.inner')])
             ->public()
         ;
+        if ($this->environment === self::ENV_PAUSE_POOL) {
+            $services->set(self::PAUSE_POOL, CountingPool::class)->args([inline_service(ArrayAdapter::class)])->public();
+        }
         if (in_array($this->environment, [self::ENV_FAILING_EXPORT, self::ENV_PAUSE_POOL], true)) {
             $services->set(self::EXPORTER, RecordingExporter::class)->args([false])->public();
         } elseif ($this->environment !== self::ENV_DISABLED) {

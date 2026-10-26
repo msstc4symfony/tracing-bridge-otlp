@@ -104,6 +104,13 @@
   Межхостовость требует общий `framework.cache.prefix_seed` (namespace ключей; дефолт — project dir, у
   release-каталогов разный).
 - **Явный `~` у строковых опций (исправлено в 1.1.0)**: `stringNode()->cannotBeEmpty()` превращает `null` в `""` и
-  отклоняет — `service_name: ~` из README валил сборку. Теперь `scalarNode` + `validate()` (`isNoName()`: не null и не
-  непустая строка). Тест на дефолты должен проверять и явный `~`, и слияние двух конфигов.
+  отклоняет — `service_name: ~` из README валил сборку. Теперь `scalarNode` + `validate()`: не строка и не null —
+  ошибка, `""` → null. Отклонять `""` нельзя: `ValidateEnvPlaceholdersPass` гоняет validate-замыкания с фикстурой `""`
+  для `%env(X)%` (на втором раунде ревью так сломались плейсхолдеры, showcase задаёт `service_name: '%env(...)%'`).
+  Пустой env в рантайме доходит до параметра как `""` — `ResourceFactory::resource()` и `ExporterSettings::resolve()`
+  считают его null. Тест плейсхолдеров: `ContainerBuilder(EnvPlaceholderParameterBag)`, из оптимизирующих
+  проходов только `ValidateEnvPlaceholdersPass` (он в optimization, не в merge — без него регрессия не ловится),
+  `compile(false)` (с `true` подставились бы значения env и проверялись бы они). Полная сборка бандла требует
+  параметров profiling-бандлов. Тесты дефолтов
+  проверяют явный `~`, слияние двух конфигов и `""`.
 - **Тест на `cache.app`** поведенческий: `TestKernel` декорирует `cache.app` `CountingPool`, после запроса обращений 0.

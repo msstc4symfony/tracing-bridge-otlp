@@ -9,10 +9,12 @@ use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Flusher;
 use Msstc4Symfony\TracingBridgeOtlp\TracingBridgeOtlpBundle;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
+use Symfony\Component\DependencyInjection\Compiler\ValidateEnvPlaceholdersPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Exception\ServiceNotFoundException;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
+use Symfony\Component\DependencyInjection\ParameterBag\EnvPlaceholderParameterBag;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBag;
 use Symfony\Component\DependencyInjection\Reference;
 
@@ -59,6 +61,40 @@ final class TracingBridgeOtlpBundleTest extends TestCase
         self::assertFalse($container->hasParameter(self::PAUSE_DIR));
         $pauses = $container->getDefinition(Flusher::class)->getArgument('$pauses');
         self::assertEquals(new Reference('app.pause_pool'), $pauses);
+    }
+
+    public function testEnvPlaceholdersInTheStringOptionsPassTheConfiguration(): void
+    {
+        $container = new ContainerBuilder(new EnvPlaceholderParameterBag([
+            'kernel.environment' => 'test',
+            'kernel.debug' => false,
+            'kernel.build_dir' => sys_get_temp_dir(),
+            'kernel.cache_dir' => sys_get_temp_dir(),
+        ]));
+        $extension = (new TracingBridgeOtlpBundle())->getContainerExtension();
+        self::assertInstanceOf(ExtensionInterface::class, $extension);
+        $container->registerExtension($extension);
+        $container->loadFromExtension($extension->getAlias(), [
+            'service_name' => '%env(TEST_OTLP_SERVICE_NAME)%',
+            'endpoint' => '%env(TEST_OTLP_ENDPOINT)%',
+        ]);
+        // ValidateEnvPlaceholdersPass processes the configuration with "" for each placeholder; the other passes would
+        // need the profiling bundles.
+        $passes = $container->getCompilerPassConfig();
+        $passes->setOptimizationPasses([new ValidateEnvPlaceholdersPass()]);
+        $passes->setRemovingPasses([]);
+        $passes->setAfterRemovingPasses([]);
+
+        // Unresolved, as a cached container keeps them: resolving would validate the variables' values instead.
+        $container->compile(false);
+
+        self::assertSame(
+            ['%env(TEST_OTLP_SERVICE_NAME)%', '%env(TEST_OTLP_ENDPOINT)%'],
+            $container->resolveEnvPlaceholders([
+                $container->getParameter(TracingBridgeOtlpBundle::PARAMETER_PREFIX . 'service_name'),
+                $container->getParameter(TracingBridgeOtlpBundle::PARAMETER_PREFIX . 'endpoint'),
+            ], '%%env(%s)%%'),
+        );
     }
 
     public function testAPausePoolThatIsNoServiceFailsTheBuild(): void

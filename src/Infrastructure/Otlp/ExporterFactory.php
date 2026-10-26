@@ -34,7 +34,7 @@ final class ExporterFactory
     }
 
     /**
-     * @param non-empty-string|null $endpoint base URL; null: the OTEL_EXPORTER_OTLP_* variables
+     * @param string|null $endpoint base URL; null or "" (an empty env placeholder): the OTEL_EXPORTER_OTLP_* variables
      * @param 'http/protobuf'|'http/json'|'grpc'|null $protocol null: the OTEL_EXPORTER_OTLP_* variables
      * @param positive-int $timeoutMs
      */

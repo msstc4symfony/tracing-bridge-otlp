@@ -29,6 +29,10 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
     // Also ExporterFactory::GRPC_TRANSPORT_FACTORY: deptrac keeps the bundle class off Infrastructure.
     private const GRPC_TRANSPORT_FACTORY = 'OpenTelemetry\Contrib\Grpc\GrpcTransportFactory';
 
+    // Not stringNode()->cannotBeEmpty(): it turns an explicit ~ into "" and rejects it. "" means unset, as an empty
+    // OTEL_* variable does: an env placeholder is validated as "" and may resolve to it at runtime.
+    private const OPTIONAL_STRING = 'A string or ~ expected, %s given.';
+
     protected string $extensionAlias = 'msstc4symfony_tracing_bridge_otlp';
 
     #[Override]
@@ -43,14 +47,14 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
                 ->scalarNode('service_name')
                     ->info('service.name of the exported spans; ~: OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES, else the basename of kernel.project_dir.')
                     ->defaultNull()
-                    // Not stringNode()->cannotBeEmpty(): it turns an explicit ~ into "" and rejects it.
-                    ->validate()->ifTrue(self::isNoName(...))->thenInvalid('A non-empty string or ~ expected, %s given.')->end()
+                    ->validate()->ifTrue($this->isNeitherStringNorNull(...))->thenInvalid(self::OPTIONAL_STRING)->end()
+                    ->validate()->ifTrue($this->isEmptyString(...))->then(static fn (): null => null)->end()
                 ->end()
                 ->scalarNode('endpoint')
                     ->info('Base URL like OTEL_EXPORTER_OTLP_ENDPOINT (/v1/traces is appended for HTTP); ~: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, OTEL_EXPORTER_OTLP_ENDPOINT, http://localhost:4318.')
                     ->defaultNull()
-                    // Not stringNode()->cannotBeEmpty(): it turns an explicit ~ into "" and rejects it.
-                    ->validate()->ifTrue(self::isNoName(...))->thenInvalid('A non-empty string or ~ expected, %s given.')->end()
+                    ->validate()->ifTrue($this->isNeitherStringNorNull(...))->thenInvalid(self::OPTIONAL_STRING)->end()
+                    ->validate()->ifTrue($this->isEmptyString(...))->then(static fn (): null => null)->end()
                 ->end()
                 ->enumNode('protocol')
                     ->info('~: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL, OTEL_EXPORTER_OTLP_PROTOCOL, http/protobuf. grpc needs open-telemetry/transport-grpc.')
@@ -70,9 +74,11 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
                 ->scalarNode('pause_pool')
                     ->info('PSR-6 pool (service id) sharing the pause after a failed export between hosts; ~: files in kernel.share_dir (else kernel.cache_dir), shared by the processes on one host.')
                     ->defaultNull()
+                    ->validate()->ifTrue($this->isNeitherStringNorNull(...))->thenInvalid(self::OPTIONAL_STRING)->end()
+                    ->validate()->ifTrue($this->isEmptyString(...))->then(static fn (): null => null)->end()
                     ->validate()
-                        ->ifTrue(static fn (mixed $pool): bool => self::isNoName($pool) || (is_string($pool) && str_starts_with($pool, '@')))
-                        ->thenInvalid('pause_pool is a service id without "@" or ~, %s given.')
+                        ->ifTrue(static fn (?string $pool): bool => $pool !== null && str_starts_with($pool, '@'))
+                        ->thenInvalid('pause_pool must be ~ or a service id without "@", %s given.')
                     ->end()
                 ->end()
             ->end()
@@ -111,8 +117,13 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
         $container->import(__DIR__ . '/Resources/config/services.php');
     }
 
-    private static function isNoName(mixed $value): bool
+    private function isNeitherStringNorNull(mixed $value): bool
     {
-        return $value !== null && (!is_string($value) || $value === '');
+        return $value !== null && !is_string($value);
+    }
+
+    private function isEmptyString(mixed $value): bool
+    {
+        return $value === '';
     }
 }

@@ -49,6 +49,12 @@ final class ExporterSettingsTest extends TestCase
         self::assertSame('none', $settings->compression);
     }
 
+    public function testAnEmptyEndpointIsUnset(): void
+    {
+        // An env placeholder resolves to "" when its variable is empty, as OpenTelemetry reads an empty variable.
+        self::assertSame('http://localhost:4318/v1/traces', ExporterSettings::resolve('', null, 1000)->endpoint);
+    }
+
     public function testTheConfiguredEndpointIsABaseUrl(): void
     {
         self::assertSame('http://alloy:4318/v1/traces', ExporterSettings::resolve('http://alloy:4318', 'http/json', 1000)->endpoint);

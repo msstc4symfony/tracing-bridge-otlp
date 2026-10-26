@@ -67,9 +67,19 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
 
     public function testALaterTildeResetsAnEarlierValue(): void
     {
-        $config = $this->process(['service_name' => 'orders', 'pause_pool' => 'cache.otlp_pause'], ['service_name' => null, 'pause_pool' => null]);
+        $config = $this->process(
+            ['service_name' => 'orders', 'endpoint' => 'http://alloy:4318', 'pause_pool' => 'cache.otlp_pause'],
+            ['service_name' => null, 'endpoint' => null, 'pause_pool' => null],
+        );
 
-        self::assertSame(['service_name' => null, 'pause_pool' => null], array_intersect_key($config, ['service_name' => 0, 'pause_pool' => 0]));
+        self::assertSame(['service_name' => null, 'endpoint' => null, 'pause_pool' => null], array_intersect_key($config, ['service_name' => 0, 'endpoint' => 0, 'pause_pool' => 0]));
+    }
+
+    public function testAnEmptyStringIsUnset(): void
+    {
+        $config = $this->process(['service_name' => '', 'endpoint' => '', 'pause_pool' => '']);
+
+        self::assertSame(['service_name' => null, 'endpoint' => null, 'pause_pool' => null], array_intersect_key($config, ['service_name' => 0, 'endpoint' => 0, 'pause_pool' => 0]));
     }
 
     /**
@@ -78,13 +88,12 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
     #[TestWith([['protocol' => 'http/xml']])]
     #[TestWith([['timeout_ms' => 0]])]
     #[TestWith([['max_buffered_spans' => 0]])]
-    #[TestWith([['service_name' => '']])]
-    #[TestWith([['endpoint' => '']])]
-    #[TestWith([['pause_pool' => '']])]
     #[TestWith([['pause_pool' => '@otlp_pause']])]
     #[TestWith([['pause_pool' => 1]])]
     #[TestWith([['service_name' => 1]])]
     #[TestWith([['endpoint' => true]])]
+    #[TestWith([['service_name' => false]])]
+    #[TestWith([['pause_pool' => 1.5]])]
     public function testRejectsInvalidValues(array $config): void
     {
         $this->expectException(InvalidConfigurationException::class);

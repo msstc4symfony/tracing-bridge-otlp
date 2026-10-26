@@ -30,10 +30,12 @@ final class ResourceFactory
     }
 
     /**
-     * @param non-empty-string|null $serviceName null: OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES, else the project directory
+     * @param string|null $serviceName null or "" (an empty env placeholder): OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES,
+     *                                 else the project directory
      */
     public static function resource(?string $serviceName, string $projectDir): ResourceInfo
     {
+        $serviceName = $serviceName === '' ? null : $serviceName;
         $resource = ResourceInfoFactory::defaultResource();
         $detected = $resource->getAttributes()->get(self::SERVICE_NAME);
         if ($serviceName === null && is_string($detected) && $detected !== '' && !str_starts_with($detected, self::UNKNOWN_SERVICE)) {

@@ -14,8 +14,14 @@ All notable changes to this bundle are documented here. The format follows
 
 ### Fixed
 
-- An explicit `~` for `service_name`, `endpoint` or `pause_pool` (as the README shows, or to reset a value of another
-  configuration file) failed configuration processing: the string nodes turned it into `""` and rejected it.
+- An explicit `~` for `service_name` or `endpoint` (as the README shows, or to reset a value of another configuration
+  file) failed configuration processing: the string nodes turned it into `""` and rejected it.
+
+### Changed
+
+- An empty `service_name` or `endpoint`, written as `""` or from an empty env variable, means unset, as an empty
+  `OTEL_*` variable does: the service name and the endpoint then come from the variables or the defaults. An empty
+  literal used to fail configuration processing; an empty env variable sent `service.name=""` or failed the export.
 
 ## [1.0.1] - 2026-10-25
 
