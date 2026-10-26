@@ -129,8 +129,8 @@ msstc4symfony_tracing_bridge_otlp:
     pause_pool: ~            # PSR-6 pool service id for the export pause; ~: files in kernel.share_dir, else kernel.cache_dir
 ```
 
-`service_name`, `endpoint` and `pause_pool` take env placeholders (`'%env(OTLP_ENDPOINT)%'`); an empty value means
-unset, as an empty `OTEL_*` variable does.
+`service_name` and `endpoint` take env placeholders (`'%env(OTLP_ENDPOINT)%'`); an empty value means unset, as an
+empty `OTEL_*` variable does. `pause_pool` is a service id, fixed when the container is built: no placeholder.
 
 Environment variables honoured: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (used as is) and `OTEL_EXPORTER_OTLP_ENDPOINT`,
 `OTEL_EXPORTER_OTLP[_TRACES]_PROTOCOL` (`http/protobuf`, `http/json`, `grpc`), `OTEL_EXPORTER_OTLP[_TRACES]_HEADERS`,

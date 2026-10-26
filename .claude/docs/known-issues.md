@@ -113,4 +113,8 @@
   `compile(false)` (с `true` подставились бы значения env и проверялись бы они). Полная сборка бандла требует
   параметров profiling-бандлов. Тесты дефолтов
   проверяют явный `~`, слияние двух конфигов и `""`.
+  Нормализация — одно `validate()->always($this->optionalString(...))` на узел (бросает `InvalidArgumentException`,
+  Config оборачивает в `InvalidConfigurationException`). `pause_pool` с `%env()%` отклоняется в `loadExtension()`
+  (`resolveEnvPlaceholders($v, '%%env(%s)%%') !== $v` → `LogicException`): иначе `service()` получал id плейсхолдера
+  `env_<hash>_…` и сборка падала непонятным `ServiceNotFoundException`.
 - **Тест на `cache.app`** поведенческий: `TestKernel` декорирует `cache.app` `CountingPool`, после запроса обращений 0.
