@@ -9,7 +9,8 @@ All notable changes to this bundle are documented here. The format follows
 ### Added
 
 - `pause_pool`: a PSR-6 pool service id holding the export pause, so the hosts sharing the pool share the pause.
-  An id that is no service fails the container build. Without it the pause stays in the filesystem cache of 1.0.1.
+  An id that is no service, or one written with `@`, fails the container build. The hosts must share
+  `framework.cache.prefix_seed`. Without it the pause stays in the filesystem cache of 1.0.1.
 
 ## [1.0.1] - 2026-10-25
 

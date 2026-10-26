@@ -49,14 +49,16 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
     $services->set(SpanBuffer::class)
         ->arg('$capacity', param($prefix . 'max_buffered_spans'))
     ;
+    // Not cache.app by default: its lookups are application metrics, and every flush would count as one.
+    $pauseFiles = inline_service(FilesystemAdapter::class)
+        ->args(['', 0, param($prefix . 'pause_dir')])
+        // An unwritable directory leaves the pause per process; the adapter must not warn about it.
+        ->call('setLogger', [inline_service(NullLogger::class)])
+    ;
     $services->set(Flusher::class)
         ->arg('$exporterFactory', service_closure($exporter))
         ->arg('$clock', inline_service(NativeClock::class))
-        // Not cache.app by default: its lookups are application metrics, and every flush would count as one.
-        ->arg('$pauses', is_string($pausePool) ? service($pausePool) : inline_service(FilesystemAdapter::class)
-            ->args(['', 0, param($prefix . 'pause_dir')])
-            // An unwritable directory leaves the pause per process; the adapter must not warn about it.
-            ->call('setLogger', [inline_service(NullLogger::class)]))
+        ->arg('$pauses', is_string($pausePool) ? service($pausePool) : $pauseFiles)
         ->tag('monolog.logger', ['channel' => 'otlp'])
     ;
     // Last of the create processors: it must key the span object end processors receive, after every wrapper

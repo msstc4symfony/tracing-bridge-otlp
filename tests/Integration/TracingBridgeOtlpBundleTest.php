@@ -14,6 +14,7 @@ use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Exception\ServiceNotFoundException;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBag;
+use Symfony\Component\DependencyInjection\Reference;
 
 final class TracingBridgeOtlpBundleTest extends TestCase
 {
@@ -51,6 +52,14 @@ final class TracingBridgeOtlpBundleTest extends TestCase
         self::assertSame(NullLogger::class, $logger->getClass());
     }
 
+    public function testAPausePoolReplacesThePauseDirectory(): void
+    {
+        $container = $this->load(['kernel.cache_dir' => '/srv/cache'], ['pause_pool' => 'app.pause_pool']);
+
+        self::assertFalse($container->hasParameter(self::PAUSE_DIR));
+        self::assertEquals(new Reference('app.pause_pool'), $container->getDefinition(Flusher::class)->getArgument('$pauses'));
+    }
+
     public function testAPausePoolThatIsNoServiceFailsTheBuild(): void
     {
         $this->expectException(ServiceNotFoundException::class);
@@ -75,8 +84,9 @@ final class TracingBridgeOtlpBundleTest extends TestCase
      * The extension loaded alone: compiling would need profiling-bundle and tracing-bridge-profiling.
      *
      * @param array<string, string> $kernelParameters
+     * @param array<string, string> $config
      */
-    private function load(array $kernelParameters): ContainerBuilder
+    private function load(array $kernelParameters, array $config = []): ContainerBuilder
     {
         $container = new ContainerBuilder(new ParameterBag([
             'kernel.environment' => 'test',
@@ -87,7 +97,7 @@ final class TracingBridgeOtlpBundleTest extends TestCase
         $extension = (new TracingBridgeOtlpBundle())->getContainerExtension();
         self::assertInstanceOf(ExtensionInterface::class, $extension);
 
-        $extension->load([[]], $container);
+        $extension->load([$config], $container);
 
         return $container;
     }

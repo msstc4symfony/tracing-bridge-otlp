@@ -69,6 +69,10 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
                     ->info('PSR-6 pool (service id) sharing the pause after a failed export between hosts; ~: files in kernel.share_dir (else kernel.cache_dir), shared by the processes on one host.')
                     ->defaultNull()
                     ->cannotBeEmpty()
+                    ->validate()
+                        ->ifTrue(static fn (string $pool): bool => str_starts_with($pool, '@'))
+                        ->thenInvalid('pause_pool is a service id without "@", %s given.')
+                    ->end()
                 ->end()
             ->end()
         ;

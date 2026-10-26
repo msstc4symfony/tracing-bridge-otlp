@@ -105,9 +105,12 @@ msstc4symfony_tracing_bridge_otlp:
     pause_pool: otlp_pause
 ```
 
-Then a down receiver costs `timeout_ms` once per pause for the whole cluster. Prefer a pool of its own, left out of
-cache metrics (metrics-bundle `cache.pools`): a counted pool records one lookup per PHP-FPM request and at most one a
-second per worker. A pool that fails holds the pause per process.
+Then a down receiver costs `timeout_ms` once per pause for the whole cluster. The value is a service id without `@`.
+The hosts must share `framework.cache.prefix_seed`: a pool's key namespace derives from it, and it defaults to the
+project directory, which differs between release directories. Prefer a pool of its own, left out of cache metrics
+(metrics-bundle `cache.pools`): a counted pool records one lookup per PHP-FPM request and at most one a second per
+worker. Each of those lookups is a round trip, at the end of the unit of work: give the Redis provider a short
+`timeout`. A pool that fails holds the pause per process.
 
 The exporter has its own HTTP client: the application's `http_client` is traced and profiled, so the export would trace
 itself. Install `ext-curl`: the native HTTP client resolves host names without a timeout.
@@ -123,7 +126,7 @@ msstc4symfony_tracing_bridge_otlp:
     protocol: ~              # http/protobuf | http/json | grpc; ~: the variables below, else http/protobuf
     timeout_ms: 1000         # whole export request
     max_buffered_spans: 2048 # spans per unit of work before an early export
-    pause_pool: ~            # PSR-6 pool service id for the export pause; ~: files in kernel.share_dir (one host)
+    pause_pool: ~            # PSR-6 pool service id for the export pause; ~: files in kernel.share_dir, else kernel.cache_dir
 ```
 
 Environment variables honoured: `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (used as is) and `OTEL_EXPORTER_OTLP_ENDPOINT`,

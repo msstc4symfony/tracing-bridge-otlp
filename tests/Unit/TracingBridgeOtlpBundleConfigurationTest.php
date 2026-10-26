@@ -67,6 +67,7 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
     #[TestWith([['service_name' => '']])]
     #[TestWith([['endpoint' => '']])]
     #[TestWith([['pause_pool' => '']])]
+    #[TestWith([['pause_pool' => '@otlp_pause']])]
     public function testRejectsInvalidValues(array $config): void
     {
         $this->expectException(InvalidConfigurationException::class);
