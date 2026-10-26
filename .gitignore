@@ -2,7 +2,6 @@
 .idea
 /composer.lock
 /coverage/
-/junit.xml
 /.phpunit.cache
 
 ###> symfony/framework-bundle ###

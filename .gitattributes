@@ -17,7 +17,6 @@
 /CLAUDE.md             export-ignore
 /Makefile              export-ignore
 /SECURITY.md           export-ignore
-/codecov.yml           export-ignore
 /composer-ci.json      export-ignore
 /composer-ci.lock      export-ignore
 /coverage              export-ignore
