@@ -66,6 +66,8 @@ final class CountingPool implements AdapterInterface
     #[Override]
     public function deleteItem(string $key): bool
     {
+        $this->writes++;
+
         return $this->inner->deleteItem($key);
     }
 

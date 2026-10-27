@@ -20,8 +20,8 @@ use Throwable;
 
 /**
  * Exports the buffered spans, then the buffered log records, in one batch each. A failed export is logged once and
- * pauses exporting both, so a collector that is down costs the timeout once per pause rather than once per request or
- * message.
+ * pauses that signal's export, so a collector that is down costs the timeout once per pause rather than once per
+ * request or message; a log pipeline the collector lacks does not stop the spans.
  *
  * @internal
  */
@@ -35,12 +35,11 @@ final class Flusher implements SpanFlushInterface
 
     private const PAUSE_KEY = 'msstc4symfony_tracing_bridge_otlp.paused_until';
 
-    private ?float $sharedPause = null;
+    private const LOG_PAUSE_KEY = 'msstc4symfony_tracing_bridge_otlp.logs_paused_until';
 
-    private ?float $sharedPauseReadAt = null;
+    private readonly ExportPause $spanPause;
 
-    // Unix time with microseconds.
-    private ?float $pausedUntil = null;
+    private readonly ExportPause $logPause;
 
     /** @var non-negative-int spans drained without export since the last failure */
     private int $dropped = 0;
@@ -58,8 +57,8 @@ final class Flusher implements SpanFlushInterface
     /**
      * @param Closure(): SpanExporterInterface $exporterFactory called on the first export: a misconfigured endpoint or
      *                                                          protocol then fails like an export, not the application
-     * @param CacheItemPoolInterface|null $pauses shares the pause with the other processes using it (PHP-FPM, cron);
-     *                                            null: the pause holds for this process only
+     * @param CacheItemPoolInterface|null $pauses shares the pauses with the other processes using it (PHP-FPM, cron);
+     *                                            null: a pause holds for this process only
      * @param (Closure(): LogRecordExporterInterface)|null $logExporterFactory like $exporterFactory, for $logs; given
      *                                                                         together with $logs or not at all
      *
@@ -68,9 +67,9 @@ final class Flusher implements SpanFlushInterface
     public function __construct(
         private readonly SpanBuffer $buffer,
         private readonly Closure $exporterFactory,
-        private readonly ClockInterface $clock,
+        ClockInterface $clock,
         private readonly LoggerInterface $logger,
-        private readonly ?CacheItemPoolInterface $pauses = null,
+        ?CacheItemPoolInterface $pauses = null,
         private readonly ?LogBuffer $logs = null,
         private readonly ?Closure $logExporterFactory = null,
     ) {
@@ -79,6 +78,9 @@ final class Flusher implements SpanFlushInterface
         if ($exportsLogs !== $buildsLogExporter) {
             throw new InvalidArgumentException('Log records need a log exporter factory, and the factory needs the log buffer.');
         }
+
+        $this->spanPause = new ExportPause($clock, $pauses, self::PAUSE_KEY);
+        $this->logPause = new ExportPause($clock, $pauses, self::LOG_PAUSE_KEY);
     }
 
     #[Override]
@@ -90,51 +92,28 @@ final class Flusher implements SpanFlushInterface
 
         $this->flushing = true;
         try {
-            $this->export();
+            $this->exportSpans($this->buffer->drain());
+            $this->exportLogs($this->logs?->drain() ?? []);
         } finally {
             $this->flushing = false;
         }
     }
 
-    private function export(): void
-    {
-        $spans = $this->buffer->drain();
-        $records = $this->logs?->drain() ?? [];
-        if ($spans === [] && $records === []) {
-            return;
-        }
-
-        // The later pause holds: another process may have failed after this one.
-        if ($this->now() < max($this->pausedUntil ?? 0.0, $this->sharedPause() ?? 0.0)) {
-            $this->dropped += count($spans);
-            $this->droppedLogs += count($records);
-
-            return;
-        }
-
-        if ($spans !== [] && !$this->exportSpans($spans)) {
-            $this->droppedLogs += count($records);
-
-            return;
-        }
-
-        if ($records !== [] && !$this->exportLogs($records)) {
-            return;
-        }
-
-        // A clock set back would otherwise bring an old pause back, here or from the shared cache.
-        if ($this->pausedUntil !== null || $this->sharedPause !== null) {
-            $this->pausedUntil = null;
-            $this->sharedPause = null;
-            $this->forgetSharedPause();
-        }
-    }
-
     /**
-     * @param non-empty-list<SpanDataInterface> $spans
+     * @param list<SpanDataInterface> $spans
      */
-    private function exportSpans(array $spans): bool
+    private function exportSpans(array $spans): void
     {
+        if ($spans === []) {
+            return;
+        }
+
+        if ($this->spanPause->isActive()) {
+            $this->dropped += count($spans);
+
+            return;
+        }
+
         try {
             $this->exporter ??= ($this->exporterFactory)();
             $exported = $this->exporter->export($spans)->await() === true;
@@ -146,9 +125,9 @@ final class Flusher implements SpanFlushInterface
         if (!$exported) {
             $this->logger->warning('OTLP span export failed, {count} spans dropped.', $this->failure(count($spans) + $this->dropped, $exception));
             $this->dropped = 0;
-            $this->pause();
+            $this->spanPause->start();
 
-            return false;
+            return;
         }
 
         if ($this->dropped > 0) {
@@ -156,14 +135,24 @@ final class Flusher implements SpanFlushInterface
             $this->dropped = 0;
         }
 
-        return true;
+        $this->spanPause->end();
     }
 
     /**
-     * @param non-empty-list<ReadableLogRecord> $records
+     * @param list<ReadableLogRecord> $records
      */
-    private function exportLogs(array $records): bool
+    private function exportLogs(array $records): void
     {
+        if ($records === []) {
+            return;
+        }
+
+        if ($this->logPause->isActive()) {
+            $this->droppedLogs += count($records);
+
+            return;
+        }
+
         try {
             $this->logExporter ??= ($this->logExporterFactory ?? throw new LogicException('No log exporter factory.'))();
             $exported = $this->logExporter->export($records)->await() === true;
@@ -175,17 +164,17 @@ final class Flusher implements SpanFlushInterface
         if (!$exported) {
             $this->logger->warning('OTLP log export failed, {count} log records dropped.', $this->failure(count($records) + $this->droppedLogs, $exception));
             $this->droppedLogs = 0;
-            $this->pause();
+            $this->logPause->start();
 
-            return false;
+            return;
         }
 
         if ($this->droppedLogs > 0) {
-            $this->logger->info('OTLP log export resumed, {dropped} log records dropped since the last export.', ['dropped' => $this->droppedLogs]);
+            $this->logger->info('OTLP log export resumed, {dropped} log records dropped while paused.', ['dropped' => $this->droppedLogs]);
             $this->droppedLogs = 0;
         }
 
-        return true;
+        $this->logPause->end();
     }
 
     /**
@@ -196,63 +185,5 @@ final class Flusher implements SpanFlushInterface
     private function failure(int $count, ?Throwable $exception): array
     {
         return $exception instanceof Throwable ? ['count' => $count, 'exception' => $exception] : ['count' => $count];
-    }
-
-    private function pause(): void
-    {
-        $this->pausedUntil = $this->now() + self::PAUSE_SECONDS;
-        $this->sharePause($this->pausedUntil);
-    }
-
-    // The cache is an optimisation: when it fails, the pause holds for this process only.
-    private function sharedPause(): ?float
-    {
-        if (!$this->pauses instanceof CacheItemPoolInterface) {
-            return null;
-        }
-
-        $now = $this->now();
-        if ($this->sharedPauseReadIsFresh($now)) {
-            return $this->sharedPause;
-        }
-
-        $this->sharedPauseReadAt = $now;
-        try {
-            $value = $this->pauses->getItem(self::PAUSE_KEY)->get();
-        } catch (Throwable) {
-            $value = null;
-        }
-
-        return $this->sharedPause = is_float($value) ? $value : null;
-    }
-
-    // A clock set back makes the last read stale, not fresh.
-    private function sharedPauseReadIsFresh(float $now): bool
-    {
-        return $this->sharedPauseReadAt !== null && $now >= $this->sharedPauseReadAt
-            && $now - $this->sharedPauseReadAt < self::SHARED_PAUSE_READ_SECONDS;
-    }
-
-    private function forgetSharedPause(): void
-    {
-        try {
-            $this->pauses?->deleteItem(self::PAUSE_KEY);
-        } catch (Throwable) {
-        }
-    }
-
-    private function sharePause(float $until): void
-    {
-        try {
-            if ($this->pauses instanceof CacheItemPoolInterface) {
-                $this->pauses->save($this->pauses->getItem(self::PAUSE_KEY)->set($until)->expiresAfter(self::PAUSE_SECONDS));
-            }
-        } catch (Throwable) {
-        }
-    }
-
-    private function now(): float
-    {
-        return (float) $this->clock->now()->format('U.u');
     }
 }

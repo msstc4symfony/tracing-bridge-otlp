@@ -183,7 +183,7 @@ of their own without spans.
 - Every scalar value goes out, including what processors add (`ip`, `url` of WebProcessor, user ids): export only what
   you would log.
 - The records go with the spans at the end of the unit of work, or earlier when `max_buffered_logs` is reached. A failed
-  log export logs one `warning` and pauses both exports; records of the bridge's own `otlp` channel are not exported.
+  log export logs one `warning` and pauses the log export, not the spans; records of the bridge's own `otlp` channel are not exported.
 - The endpoint and protocol are the span ones; `OTEL_EXPORTER_OTLP_LOGS_*` take the place of the `_TRACES_` variables.
 
 ## Limitations

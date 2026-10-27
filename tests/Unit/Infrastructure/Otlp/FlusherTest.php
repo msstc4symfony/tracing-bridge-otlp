@@ -8,10 +8,12 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 use InvalidArgumentException as InvalidFlusherArgument;
 use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportPause;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Flusher;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\LogBuffer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanBuffer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
+use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CountingPool;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingExporter;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingLogExporter;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingLogger;
@@ -29,6 +31,7 @@ use Symfony\Component\Clock\MockClock;
 #[CoversClass(Flusher::class)]
 #[UsesClass(SpanBuffer::class)]
 #[UsesClass(LogBuffer::class)]
+#[CoversClass(ExportPause::class)]
 #[UsesClass(ExportedSpan::class)]
 #[UsesClass(SpanIds::class)]
 final class FlusherTest extends TestCase
@@ -364,10 +367,10 @@ final class FlusherTest extends TestCase
         self::assertCount(1, $this->logExporter->batches);
     }
 
-    public function testAFailedLogExportLogsOneWarningAndPausesBothSignals(): void
+    public function testAFailedLogExportPausesTheLogRecordsOnly(): void
     {
         $flusher = $this->withLogs();
-        $this->logExporter->outcome = new RuntimeException('down');
+        $this->logExporter->outcome = new RuntimeException('no log pipeline');
         $this->logs->add($this->logRecord());
         $flusher->flush();
 
@@ -375,10 +378,9 @@ final class FlusherTest extends TestCase
         $this->logs->add($this->logRecord());
         $flusher->flush();
 
-        self::assertSame([], $this->exporter->batches);
+        self::assertCount(1, $this->exporter->batches, 'the spans still go out');
         self::assertCount(1, $this->logExporter->batches);
-        self::assertCount(1, $this->logger->records);
-        self::assertSame('OTLP log export failed, {count} log records dropped.', $this->logger->records[0]['message']);
+        self::assertSame('OTLP log export failed, {count} log records dropped.', $this->logger->records[0]['message'] ?? null);
         self::assertSame(1, $this->logger->records[0]['context']['count'] ?? null);
 
         $this->clock->sleep(Flusher::PAUSE_SECONDS);
@@ -386,10 +388,10 @@ final class FlusherTest extends TestCase
         $this->logs->add($this->logRecord());
         $flusher->flush();
 
-        self::assertSame(['level' => 'info', 'message' => 'OTLP log export resumed, {dropped} log records dropped since the last export.', 'context' => ['dropped' => 1]], $this->logger->records[1] ?? null);
+        self::assertSame(['level' => 'info', 'message' => 'OTLP log export resumed, {dropped} log records dropped while paused.', 'context' => ['dropped' => 1]], $this->logger->records[1] ?? null);
     }
 
-    public function testAFailedSpanExportDropsTheLogRecordsOfTheFlushToo(): void
+    public function testAFailedSpanExportLeavesTheLogRecordsAlone(): void
     {
         $flusher = $this->withLogs();
         $this->exporter->outcome = false;
@@ -398,9 +400,9 @@ final class FlusherTest extends TestCase
 
         $flusher->flush();
 
-        self::assertSame([], $this->logExporter->batches);
-        self::assertSame([], $this->logs->drain());
+        self::assertCount(1, $this->logExporter->batches);
         self::assertSame('OTLP span export failed, {count} spans dropped.', $this->logger->records[0]['message'] ?? null);
+        self::assertCount(1, $this->logger->records);
     }
 
     public function testAnEmptyFlushDuringThePauseKeepsThePause(): void
@@ -421,35 +423,31 @@ final class FlusherTest extends TestCase
     public function testDroppedLogRecordsAddUpUntilTheyAreReported(): void
     {
         $flusher = $this->withLogs();
-        $this->exporter->outcome = false;
-        $this->fill(1);
-        $this->logs->add($this->logRecord());
-        $flusher->flush();
-        $this->logs->add($this->logRecord());
-        $flusher->flush();
-
-        $this->clock->sleep(Flusher::PAUSE_SECONDS);
-        $this->fill(1);
-        $this->logs->add($this->logRecord());
-        $flusher->flush();
-
-        $this->clock->sleep(Flusher::PAUSE_SECONDS);
         $this->logExporter->outcome = false;
         $this->logs->add($this->logRecord());
         $flusher->flush();
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
 
-        self::assertSame('OTLP log export failed, {count} log records dropped.', $this->logger->records[2]['message'] ?? null);
-        self::assertSame(4, $this->logger->records[2]['context']['count'] ?? null);
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        self::assertSame('OTLP log export failed, {count} log records dropped.', $this->logger->records[1]['message'] ?? null);
+        self::assertSame(3, $this->logger->records[1]['context']['count'] ?? null);
     }
 
     public function testTheResumeCountStartsAfreshForLogRecords(): void
     {
         $flusher = $this->withLogs();
-        $this->exporter->outcome = false;
-        $this->fill(1);
+        $this->logExporter->outcome = false;
         $this->logs->add($this->logRecord());
         $flusher->flush();
-        $this->exporter->outcome = true;
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+        $this->logExporter->outcome = true;
         $this->clock->sleep(Flusher::PAUSE_SECONDS);
         $this->logs->add($this->logRecord());
         $flusher->flush();
@@ -532,18 +530,75 @@ final class FlusherTest extends TestCase
         self::assertCount(3, $this->exporter->batches);
     }
 
-    public function testAPauseStaysWhenTheSpansWentOutButTheLogRecordsDidNot(): void
+    public function testEachSignalSharesItsOwnPauseThroughTheCache(): void
     {
-        $flusher = $this->withLogs();
-        $this->logExporter->outcome = false;
+        $pauses = new ArrayAdapter();
+        $this->logs = new LogBuffer(100);
+        $this->logExporter = new RecordingLogExporter(false);
+        $first = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses, $this->logs, fn (): RecordingLogExporter => $this->logExporter);
+        $this->logs->add($this->logRecord());
+        $first->flush();
+
+        $otherLogs = new RecordingLogExporter();
+        $second = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses, $this->logs, static fn (): RecordingLogExporter => $otherLogs);
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $second->flush();
+
+        self::assertCount(1, $this->exporter->batches);
+        self::assertSame([], $otherLogs->batches);
+
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->logs->add($this->logRecord());
+        $second->flush();
+        self::assertCount(1, $otherLogs->batches);
+    }
+
+    public function testExportsWithoutAPauseLeaveTheCacheAlone(): void
+    {
+        $pauses = new CountingPool(new ArrayAdapter());
+        $this->logs = new LogBuffer(100);
+        $this->logExporter = new RecordingLogExporter();
+        $flusher = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses, $this->logs, fn (): RecordingLogExporter => $this->logExporter);
+
         $this->fill(1);
         $this->logs->add($this->logRecord());
         $flusher->flush();
 
+        self::assertSame(0, $pauses->writes());
+    }
+
+    public function testAResumedLogExportForgetsItsPause(): void
+    {
+        $flusher = $this->withLogs();
+        $this->logExporter->outcome = false;
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+        $this->logExporter->outcome = true;
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        $this->clock->modify('-1 hour');
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        self::assertCount(3, $this->logExporter->batches);
+    }
+
+    public function testASpanPauseLeavesTheLogRecordsExporting(): void
+    {
+        $flusher = $this->withLogs();
+        $this->exporter->outcome = false;
         $this->fill(1);
         $flusher->flush();
 
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
         self::assertCount(1, $this->exporter->batches);
+        self::assertCount(1, $this->logExporter->batches);
     }
 
     public function testExportingBothSignalsEndsAPauseForGood(): void
