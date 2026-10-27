@@ -82,7 +82,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ;
         $services->set(LogRecordMapper::class)
             ->arg('$scope', service($prefix . 'scope'))
-            ->arg('$resource', service($prefix . 'resource'))
+            ->arg('$resource', service_closure($prefix . 'resource'))
         ;
         $services->set($prefix . 'logs_handler', OtlpLogHandler::class)
             ->arg('$flush', service(Flusher::class))

@@ -46,6 +46,7 @@ final class KernelExportTest extends TestCase
     #[Override]
     protected function tearDown(): void
     {
+        putenv(TestKernel::LOGS_SERVICE_ENV);
         $this->kernel?->shutdown();
         (new Filesystem())->remove(TestKernel::cacheRoot());
     }
@@ -79,8 +80,17 @@ final class KernelExportTest extends TestCase
         self::assertSame($unit->getSpanId(), $response->headers->has('traceresponse') ? TraceParent::fromHeader((string) $response->headers->get('traceresponse'))?->spanId : null);
     }
 
+    public function testTheLogHandlerIsBuiltWithoutTheServiceNameVariable(): void
+    {
+        $kernel = $this->boot(TestKernel::ENV_LOGS);
+
+        self::assertInstanceOf(OtlpLogHandler::class, $this->testContainer()->get('msstc4symfony_tracing_bridge_otlp.logs_handler'));
+        self::assertInstanceOf(LogsInMemoryExporter::class, $kernel->getContainer()->get(TestKernel::LOG_EXPORTER));
+    }
+
     public function testLogsOfARequestGoOutWithItsSpansInTheirTraceContext(): void
     {
+        putenv(TestKernel::LOGS_SERVICE_ENV . '=orders');
         $kernel = $this->boot(TestKernel::ENV_LOGS);
         $request = Request::create('/traced', server: ['HTTP_TRACEPARENT' => '00-' . self::TRACE_ID . '-' . self::CALLER_SPAN . '-01']);
 
@@ -104,6 +114,7 @@ final class KernelExportTest extends TestCase
         self::assertSame(self::TRACE_ID, $inside->getSpanContext()?->getTraceId());
         self::assertSame($work->getSpanId(), $inside->getSpanContext()->getSpanId());
         self::assertSame('INFO', $inside->getSeverityText());
+        self::assertSame('orders', $inside->getResource()->getAttributes()->get('service.name'));
     }
 
     public function testTheExportGoesOutOncePerRequestAfterTerminate(): void

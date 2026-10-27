@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
+use Closure;
 use Monolog\Level;
 use Monolog\LogRecord;
 use Msstc4Symfony\TracingBundle\Application\Port\TraceContextHolderInterface;
@@ -29,7 +30,7 @@ use Throwable;
  *
  * @internal
  */
-final readonly class LogRecordMapper
+final class LogRecordMapper
 {
     // Keys TraceLogProcessor adds that the record's trace context already carries.
     private const TRACE_KEYS = ['trace_id' => true, 'span_id' => true];
@@ -52,23 +53,23 @@ final readonly class LogRecordMapper
 
     private const NANOS_PER_MICRO = 1000;
 
-    private LoggerSharedState $shared;
+    private ?LoggerSharedState $shared = null;
 
     /** @var positive-int */
-    private int $valueLengthLimit;
+    private readonly int $valueLengthLimit;
 
     /**
+     * @param Closure(): ResourceInfo $resource called on the first record: the handler is built with the logger, and
+     *                                          an env placeholder in service_name must not be needed before (cache:warmup)
      * @param positive-int|null $valueLengthLimit null: the OTEL_*ATTRIBUTE_VALUE_LENGTH_LIMIT variables at runtime
      */
     public function __construct(
-        private InstrumentationScopeInterface $scope,
-        ResourceInfo $resource,
-        private TraceContextHolderInterface $holder,
+        private readonly InstrumentationScopeInterface $scope,
+        private readonly Closure $resource,
+        private readonly TraceContextHolderInterface $holder,
         ?int $valueLengthLimit = null,
     ) {
         $this->valueLengthLimit = $valueLengthLimit ?? AttributeLimit::valueLength(Signals::LOGS);
-        $limits = (new LogRecordLimitsBuilder())->setAttributeValueLengthLimit($this->valueLengthLimit)->build();
-        $this->shared = new LoggerSharedState($resource, $limits, new NoopLogRecordProcessor());
     }
 
     public function map(LogRecord $record): ReadableLogRecord
@@ -81,7 +82,16 @@ final readonly class LogRecordMapper
             ->setContext(Context::getRoot()->withContextValue(Span::wrap($this->spanContext($record))))
         ;
 
-        return new ReadableLogRecord($this->scope, $this->shared, $otel);
+        return new ReadableLogRecord($this->scope, $this->shared(), $otel);
+    }
+
+    private function shared(): LoggerSharedState
+    {
+        return $this->shared ??= new LoggerSharedState(
+            ($this->resource)(),
+            (new LogRecordLimitsBuilder())->setAttributeValueLengthLimit($this->valueLengthLimit)->build(),
+            new NoopLogRecordProcessor(),
+        );
     }
 
     private function nanos(LogRecord $record): int

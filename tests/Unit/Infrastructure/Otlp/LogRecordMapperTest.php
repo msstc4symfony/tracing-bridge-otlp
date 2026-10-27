@@ -43,6 +43,27 @@ final class LogRecordMapperTest extends TestCase
         $this->holder->replace(TraceContext::start()->continuing($traceParent, null, Baggage::empty()));
     }
 
+    public function testTheResourceIsBuiltOnTheFirstRecordOnly(): void
+    {
+        $built = 0;
+        $mapper = new LogRecordMapper(
+            new InstrumentationScope('test', null, null, Attributes::create([])),
+            static function () use (&$built): ResourceInfo {
+                $built++;
+
+                return ResourceInfo::create(Attributes::create(['service.name' => 'orders']));
+            },
+            $this->holder,
+        );
+        self::assertSame(0, $built);
+
+        $first = $mapper->map($this->record(Level::Info));
+        $mapper->map($this->record(Level::Info));
+
+        self::assertSame(1, $built);
+        self::assertSame('orders', $first->getResource()->getAttributes()->get('service.name'));
+    }
+
     public function testMapsTimeSeverityBodyAndTheCurrentSpan(): void
     {
         $record = $this->mapper()->map($this->record(Level::Warning, 'Payment declined', datetime: new DateTimeImmutable('2026-10-27 10:00:00.123456', new DateTimeZone('UTC'))));
@@ -201,7 +222,7 @@ final class LogRecordMapperTest extends TestCase
     {
         return new LogRecordMapper(
             new InstrumentationScope('test', null, null, Attributes::create([])),
-            ResourceInfo::create(Attributes::create([])),
+            static fn (): ResourceInfo => ResourceInfo::create(Attributes::create([])),
             $this->holder,
             $limit,
         );

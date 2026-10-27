@@ -76,7 +76,7 @@ final class OtlpLogHandlerTest extends TestCase
 
     private function handler(Level $level): OtlpLogHandler
     {
-        $mapper = new LogRecordMapper(new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([])), new InMemoryTraceContextHolder());
+        $mapper = new LogRecordMapper(new InstrumentationScope('test', null, null, Attributes::create([])), static fn (): ResourceInfo => ResourceInfo::create(Attributes::create([])), new InMemoryTraceContextHolder());
         $flush = new class($this->flushes) implements SpanFlushInterface {
             public function __construct(private int &$flushes)
             {

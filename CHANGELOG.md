@@ -4,6 +4,14 @@ All notable changes to this bundle are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow
 [Semantic Versioning](https://semver.org/); dates are UTC.
 
+## [1.2.1] - 2026-10-27
+
+### Fixed
+
+- With `logs.enabled` the Monolog handler, built with the logger, resolved `service_name` at once: an env placeholder
+  whose variable is not set (`cache:warmup`, a console command without it) failed. The resource is now built with the
+  first log record.
+
 ## [1.2.0] - 2026-10-27
 
 ### Added
@@ -68,6 +76,7 @@ All notable changes to this bundle are documented here. The format follows
   `OTEL_EXPORTER_OTLP_*` (endpoint, protocol, headers, compression, certificates), `OTEL_SERVICE_NAME` and
   `OTEL_RESOURCE_ATTRIBUTES` variables as fallbacks.
 
+[1.2.1]: https://github.com/msstc4symfony/tracing-bridge-otlp/releases/tag/v1.2.1
 [1.2.0]: https://github.com/msstc4symfony/tracing-bridge-otlp/releases/tag/v1.2.0
 [1.1.0]: https://github.com/msstc4symfony/tracing-bridge-otlp/releases/tag/v1.1.0
 [1.0.1]: https://github.com/msstc4symfony/tracing-bridge-otlp/releases/tag/v1.0.1

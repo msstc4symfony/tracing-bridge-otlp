@@ -57,6 +57,8 @@ final class TestKernel extends Kernel
 
     public const LOG_EXPORTER = 'msstc4symfony_tracing_bridge_otlp.log_exporter';
 
+    public const LOGS_SERVICE_ENV = 'TEST_OTLP_LOGS_SERVICE';
+
     // Per process: parallel PHPUnit runs must not wipe each other's container.
     public static function cacheRoot(): string
     {
@@ -104,7 +106,8 @@ final class TestKernel extends Kernel
         $handlers = ['collecting' => ['type' => 'service', 'id' => CollectingHandler::class]];
         if ($this->environment === self::ENV_LOGS) {
             $handlers['otlp'] = ['type' => 'service', 'id' => 'msstc4symfony_tracing_bridge_otlp.logs_handler'];
-            $container->extension('msstc4symfony_tracing_bridge_otlp', ['logs' => ['enabled' => true]]);
+            // An env placeholder the warmup does not have: the handler is built before any record.
+            $container->extension('msstc4symfony_tracing_bridge_otlp', ['service_name' => '%env(' . self::LOGS_SERVICE_ENV . ')%', 'logs' => ['enabled' => true]]);
         }
         $container->extension('monolog', ['handlers' => $handlers]);
         $container->extension('msstc4symfony_profiling', [
