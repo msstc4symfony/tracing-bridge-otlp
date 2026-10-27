@@ -70,15 +70,14 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ->tag('monolog.logger', ['channel' => OtlpLogHandler::OWN_CHANNEL])
     ;
 
-    $logs = $builder->getParameter($prefix . 'logs');
-    if (is_array($logs) && ($logs['enabled'] ?? false) === true) {
+    if ($builder->getParameter($prefix . 'logs.enabled') === true) {
         $logExporter = $prefix . 'log_exporter';
         $services->set($logExporter, LogRecordExporterInterface::class)
             ->factory(ExporterFactory::createLogs(...))
             ->args([param($prefix . 'endpoint'), param($prefix . 'protocol'), param($prefix . 'timeout_ms')])
         ;
         $services->set(LogBuffer::class)
-            ->arg('$capacity', $logs['max_buffered_logs'] ?? 2048)
+            ->arg('$capacity', param($prefix . 'logs.max_buffered_logs'))
             ->tag('kernel.reset', ['method' => 'reset'])
         ;
         $services->set(LogRecordMapper::class)
@@ -87,7 +86,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $buil
         ;
         $services->set($prefix . 'logs_handler', OtlpLogHandler::class)
             ->arg('$flush', service(Flusher::class))
-            ->arg('$level', $logs['level'] ?? 'info')
+            ->arg('$level', param($prefix . 'logs.level'))
         ;
         $flusher
             ->arg('$logs', service(LogBuffer::class))

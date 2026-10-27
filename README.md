@@ -169,11 +169,17 @@ monolog:
             id: msstc4symfony_tracing_bridge_otlp.logs_handler
 ```
 
-Each record becomes an OTLP log record of the span current when it was written (trace id, span id, sampled flag of
-tracing-bundle — also for an unsampled trace): body = the message, severity from the level, attributes =
-`monolog.channel` plus the scalar `extra` and `context` values (context wins; tracing-bundle's `trace_id` and `span_id`
-are the record's trace context instead), and `exception.type` / `exception.message` for a `Throwable` in
-`context['exception']`. Values are cut and cleaned like span attributes; the body is cleaned but not cut. The records go
+Each record becomes an OTLP log record of the span it was logged in: the `trace_id` / `span_id` tracing-bundle's
+`TraceLogProcessor` put in its `extra` — so a buffering handler (`fingers_crossed`, `buffer`) that passes records on later
+keeps them — else the span current when the handler writes it; the sampled flag when that trace is still current (also
+for an unsampled trace). Records written outside a unit of work (an idle worker) carry a trace of their own without
+spans. Further: body = the message, severity from the level, attributes =
+the scalar `extra` and `context` values (context wins; tracing-bundle's `trace_id` and `span_id` are the record's
+trace context instead) plus `monolog.channel`, and `exception.type` / `exception.message` for a `Throwable` in
+`context['exception']` — these names win over context keys spelled the same. Every scalar value goes out, including what
+processors add (`ip`, `url` of WebProcessor, user ids): export only what you would log. Values are cut and cleaned like
+span attributes (`OTEL_LOGRECORD_ATTRIBUTE_VALUE_LENGTH_LIMIT` / `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`); the body is cleaned
+but not cut. The records go
 with the spans at the end of the unit of work, or earlier when `max_buffered_logs` is reached; a failed log export logs
 one `warning` and pauses both exports. Records of the bridge's own `otlp` channel are not exported. The endpoint and
 protocol are the span ones; `OTEL_EXPORTER_OTLP_LOGS_*` take the place of the `_TRACES_` variables.
@@ -183,6 +189,8 @@ protocol are the span ones; `OTEL_EXPORTER_OTLP_LOGS_*` take the place of the `_
 - A Guzzle redirect is a new pass through the handler stack: its `traceparent` names the span around the call, not the
   CLIENT span (Symfony HttpClient keeps the CLIENT span on every redirect).
 - A fatal error ends PHP before the export: the spans of that unit of work are lost.
+- Log records written after the unit's export and before `kernel.reset` (a `kernel.terminate` / `console.terminate`
+  listener below -8192, a `WorkerRunningEvent` listener between -512 and -1024) are dropped with the reset.
 - One buffer serves the container: spans of concurrent Fibers share it.
 - With an asynchronous Messenger execution strategy the worker may move on before the handler ran: the `message …`
   span then gets the worker's idle trace instead of the message's.

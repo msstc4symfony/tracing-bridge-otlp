@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Support;
 
+use Closure;
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
 use OpenTelemetry\SDK\Common\Future\CompletedFuture;
 use OpenTelemetry\SDK\Common\Future\FutureInterface;
@@ -20,6 +21,9 @@ final class RecordingLogExporter implements LogRecordExporterInterface
     /** @var list<list<ReadableLogRecord>> */
     public array $batches = [];
 
+    /** @var (Closure(): void)|null runs before each export records its batch */
+    public ?Closure $onExport = null;
+
     public function __construct(
         public bool|RuntimeException $outcome = true,
     ) {
@@ -33,6 +37,10 @@ final class RecordingLogExporter implements LogRecordExporterInterface
     #[Override]
     public function export(iterable $batch, ?CancellationInterface $cancellation = null): FutureInterface
     {
+        if ($this->onExport instanceof Closure) {
+            ($this->onExport)();
+        }
+
         $this->batches[] = array_values([...$batch]);
         if ($this->outcome instanceof RuntimeException) {
             throw $this->outcome;

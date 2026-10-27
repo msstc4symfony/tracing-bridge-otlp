@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 
+use InvalidArgumentException as InvalidFlusherArgument;
 use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Flusher;
@@ -384,7 +385,7 @@ final class FlusherTest extends TestCase
         $this->logs->add($this->logRecord());
         $flusher->flush();
 
-        self::assertSame(['level' => 'info', 'message' => 'OTLP log export resumed, {dropped} log records dropped while paused.', 'context' => ['dropped' => 1]], $this->logger->records[1] ?? null);
+        self::assertSame(['level' => 'info', 'message' => 'OTLP log export resumed, {dropped} log records dropped since the last export.', 'context' => ['dropped' => 1]], $this->logger->records[1] ?? null);
     }
 
     public function testAFailedSpanExportDropsTheLogRecordsOfTheFlushToo(): void
@@ -480,15 +481,51 @@ final class FlusherTest extends TestCase
         self::assertCount(2, $this->logExporter->batches);
     }
 
-    public function testLogRecordsWithoutALogExporterAreDroppedWithOneWarning(): void
+    public function testLogRecordsNeedALogExporterAndTheOtherWayRound(): void
+    {
+        try {
+            new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, null, new LogBuffer(1));
+            self::fail('A log buffer without a log exporter factory must be refused.');
+        } catch (InvalidFlusherArgument) {
+        }
+
+        $this->expectException(InvalidFlusherArgument::class);
+
+        new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, null, null, fn (): RecordingLogExporter => new RecordingLogExporter());
+    }
+
+    public function testAFlushStartedWhileExportingWaitsForTheNextOne(): void
     {
         $this->logs = new LogBuffer(100);
-        $flusher = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, null, $this->logs);
+        $nested = new RecordingLogExporter();
+        $flusher = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, null, $this->logs, static fn (): RecordingLogExporter => $nested);
+        $nested->onExport = function () use ($flusher): void {
+            $this->logs->add(LogBufferTest::record());
+            $flusher->flush();
+        };
         $this->logs->add($this->logRecord());
 
         $flusher->flush();
 
-        self::assertSame('OTLP log export failed, {count} log records dropped.', $this->logger->records[0]['message'] ?? null);
+        self::assertCount(1, $nested->batches);
+        self::assertCount(1, $this->logs->drain(), 'the record logged while exporting waits for the next flush');
+    }
+
+    public function testAClockSetBackAfterAResumedExportDoesNotPauseAgain(): void
+    {
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $this->flusher->flush();
+        $this->exporter->outcome = true;
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->fill(1);
+        $this->flusher->flush();
+
+        $this->clock->modify('-1 hour');
+        $this->fill(1);
+        $this->flusher->flush();
+
+        self::assertCount(3, $this->exporter->batches);
     }
 
     private function withLogs(): Flusher

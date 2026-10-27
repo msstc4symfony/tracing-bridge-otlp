@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
+use OpenTelemetry\API\Signals;
 use OpenTelemetry\SDK\Common\Configuration\Configuration;
 use OpenTelemetry\SDK\Common\Configuration\Variables;
 use Throwable;
@@ -18,18 +19,23 @@ final class AttributeLimit
 {
     public const DEFAULT_VALUE_LENGTH = 4096;
 
-    private const VARIABLES = [Variables::OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT, Variables::OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT];
+    private const VARIABLES = [
+        Signals::TRACE => [Variables::OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT, Variables::OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT],
+        Signals::LOGS => [Variables::OTEL_LOGRECORD_ATTRIBUTE_VALUE_LENGTH_LIMIT, Variables::OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT],
+    ];
 
     private function __construct()
     {
     }
 
     /**
+     * @param Signals::TRACE|Signals::LOGS $signal
+     *
      * @return positive-int characters (bytes for a string that is not UTF-8)
      */
-    public static function valueLength(): int
+    public static function valueLength(string $signal = Signals::TRACE): int
     {
-        foreach (self::VARIABLES as $variable) {
+        foreach (self::VARIABLES[$signal] as $variable) {
             if (!Configuration::has($variable)) {
                 continue;
             }

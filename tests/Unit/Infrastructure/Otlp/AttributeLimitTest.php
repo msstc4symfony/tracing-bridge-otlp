@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\AttributeLimit;
+use OpenTelemetry\API\Signals;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -17,6 +18,7 @@ final class AttributeLimitTest extends TestCase
     {
         putenv('OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT');
         putenv('OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT');
+        putenv('OTEL_LOGRECORD_ATTRIBUTE_VALUE_LENGTH_LIMIT');
     }
 
     public function testDefaultsTo4096(): void
@@ -30,6 +32,17 @@ final class AttributeLimitTest extends TestCase
         self::assertSame(100, AttributeLimit::valueLength());
 
         putenv('OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT=50');
+        self::assertSame(50, AttributeLimit::valueLength());
+    }
+
+    public function testLogRecordsReadTheirOwnVariableNotTheSpanOne(): void
+    {
+        putenv('OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT=100');
+        putenv('OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT=50');
+        self::assertSame(100, AttributeLimit::valueLength(Signals::LOGS));
+
+        putenv('OTEL_LOGRECORD_ATTRIBUTE_VALUE_LENGTH_LIMIT=30');
+        self::assertSame(30, AttributeLimit::valueLength(Signals::LOGS));
         self::assertSame(50, AttributeLimit::valueLength());
     }
 

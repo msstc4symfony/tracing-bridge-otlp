@@ -135,6 +135,10 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
             $builder->setParameter(self::PARAMETER_PREFIX . $key, $value);
         }
 
+        foreach ($config['logs'] as $key => $value) {
+            $builder->setParameter(self::PARAMETER_PREFIX . 'logs.' . $key, $value);
+        }
+
         if ($config['pause_pool'] === null) {
             // kernel.share_dir (Symfony 7.4+, unless APP_SHARE_DIR=false) is meant for data shared by the front servers.
             $baseDir = $builder->hasParameter('kernel.share_dir') ? '%kernel.share_dir%' : '%kernel.cache_dir%';

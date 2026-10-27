@@ -117,6 +117,8 @@ final readonly class ExporterSettings
     }
 
     /**
+     * @param Signals::TRACE|Signals::LOGS $signal
+     *
      * @return 'http/protobuf'|'http/json'|'grpc'
      */
     private static function protocolFromEnvironment(string $signal): string
@@ -131,6 +133,9 @@ final readonly class ExporterSettings
             : throw new LogicException(sprintf('The OTLP protocol "%s" is not supported; use one of %s.', $protocol, implode(', ', self::PROTOCOLS)));
     }
 
+    /**
+     * @param Signals::TRACE|Signals::LOGS $signal
+     */
     private static function endpoint(?string $base, string $protocol, string $signal): string
     {
         $variable = self::SIGNAL_PREFIXES[$signal] . 'ENDPOINT';
@@ -143,6 +148,9 @@ final readonly class ExporterSettings
             : Defaults::OTEL_EXPORTER_OTLP_ENDPOINT), $protocol, $signal);
     }
 
+    /**
+     * @param Signals::TRACE|Signals::LOGS $signal
+     */
     private static function signalEndpoint(string $base, string $protocol, string $signal): string
     {
         return $protocol === Protocols::GRPC
@@ -151,6 +159,8 @@ final readonly class ExporterSettings
     }
 
     /**
+     * @param Signals::TRACE|Signals::LOGS $signal
+     *
      * @return list<string> the variable of the signal, then the shared one
      */
     private static function names(string $signal, string $suffix): array
@@ -178,6 +188,8 @@ final readonly class ExporterSettings
     /**
      * OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS / OTEL_EXPORTER_OTLP_HEADERS and the OTLP user agent.
      *
+     * @param Signals::TRACE|Signals::LOGS $signal
+     *
      * @return array<string, string>
      */
     private static function headers(string $signal): array
@@ -193,6 +205,8 @@ final readonly class ExporterSettings
     }
 
     /**
+     * @param Signals::TRACE|Signals::LOGS $signal
+     *
      * @return 'none'|'gzip'
      */
     private static function compression(string $signal): string

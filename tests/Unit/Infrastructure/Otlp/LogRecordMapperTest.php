@@ -74,9 +74,10 @@ final class LogRecordMapperTest extends TestCase
     public function testExportsScalarContextAndExtraWithTheChannel(): void
     {
         $record = $this->mapper()->map($this->record(Level::Info, context: [
+            'items' => ['a'],
+            0 => 'positional',
             'order_id' => 42,
             'paid' => true,
-            'items' => ['a'],
             'none' => null,
             'ratio' => NAN,
         ], extra: [
@@ -87,10 +88,10 @@ final class LogRecordMapperTest extends TestCase
         ]));
 
         self::assertSame([
-            'monolog.channel' => 'app',
             'runtime_id' => 'r1',
             'order_id' => 42,
             'paid' => true,
+            'monolog.channel' => 'app',
         ], $record->getAttributes()->toArray());
     }
 
@@ -105,6 +106,59 @@ final class LogRecordMapperTest extends TestCase
         $this->holder->replace(TraceContext::start()->continuing($traceParent, null, Baggage::empty()));
 
         self::assertSame($sampled, $this->mapper()->map($this->record(Level::Info))->getSpanContext()?->isSampled());
+    }
+
+    public function testTheIdsTheRecordWasLoggedWithWinOverTheCurrentSpan(): void
+    {
+        $logged = $this->record(Level::Info, extra: ['trace_id' => '4bf92f3577b34da6a3ce929d0e0e4736', 'span_id' => 'b7ad6b7169203331']);
+        $this->holder->replace($this->holder->current()->withChildSpan());
+
+        $span = $this->mapper()->map($logged)->getSpanContext();
+
+        self::assertSame('4bf92f3577b34da6a3ce929d0e0e4736', $span?->getTraceId());
+        self::assertSame('b7ad6b7169203331', $span->getSpanId());
+        self::assertTrue($span->isSampled(), 'the flags of its trace, still current');
+    }
+
+    public function testARecordOfAnotherTraceIsNotMarkedSampled(): void
+    {
+        $span = $this->mapper()->map($this->record(Level::Info, extra: ['trace_id' => '0af7651916cd43dd8448eb211c80319c', 'span_id' => 'b7ad6b7169203331']))->getSpanContext();
+
+        self::assertSame('0af7651916cd43dd8448eb211c80319c', $span?->getTraceId());
+        self::assertFalse($span->isSampled());
+    }
+
+    /**
+     * @param array<string, string> $extra
+     */
+    #[TestWith([['trace_id' => 'nope', 'span_id' => 'b7ad6b7169203331']])]
+    #[TestWith([['trace_id' => '00000000000000000000000000000000', 'span_id' => 'b7ad6b7169203331']])]
+    #[TestWith([['trace_id' => '4bf92f3577b34da6a3ce929d0e0e4736', 'span_id' => 'nope']])]
+    #[TestWith([['trace_id' => '4bf92f3577b34da6a3ce929d0e0e4736']])]
+    #[TestWith([['span_id' => 'b7ad6b7169203331']])]
+    public function testInvalidLoggedIdsFallBackToTheCurrentSpan(array $extra): void
+    {
+        $span = $this->mapper()->map($this->record(Level::Info, extra: $extra))->getSpanContext();
+
+        self::assertSame($this->holder->current()->traceParent->spanId, $span?->getSpanId());
+    }
+
+    public function testTheMappersNamesWinOverContextKeys(): void
+    {
+        $record = $this->mapper()->map($this->record(Level::Error, context: [
+            'exception' => new RuntimeException('real'),
+            'exception.type' => 'Forged',
+            'monolog.channel' => 'forged',
+        ]));
+
+        $attributes = $record->getAttributes()->toArray();
+        self::assertSame(RuntimeException::class, $attributes['exception.type'] ?? null);
+        self::assertSame('app', $attributes['monolog.channel'] ?? null);
+    }
+
+    public function testAnExceptionThatIsNoThrowableStaysAPlainAttribute(): void
+    {
+        self::assertSame('timeout', $this->mapper()->map($this->record(Level::Error, context: ['exception' => 'timeout']))->getAttributes()->get('exception'));
     }
 
     public function testAnExceptionBecomesTheSemanticAttributes(): void
@@ -122,7 +176,7 @@ final class LogRecordMapperTest extends TestCase
         $record = $this->mapper(4)->map($this->record(Level::Info, "caf\xE9 au lait", context: ['note' => 'abcdefgh', "k\xFF" => 'dropped']));
 
         self::assertSame('caf? au lait', $record->getBody(), 'the body is not an attribute: no length limit');
-        self::assertSame(['monolog.channel' => 'app', 'note' => 'abcd'], $record->getAttributes()->toArray());
+        self::assertSame(['note' => 'abcd', 'monolog.channel' => 'app'], $record->getAttributes()->toArray());
     }
 
     /**

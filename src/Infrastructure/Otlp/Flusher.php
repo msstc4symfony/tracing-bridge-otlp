@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
 use Closure;
+use InvalidArgumentException;
 use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Application\Port\SpanFlushInterface;
 use OpenTelemetry\SDK\Logs\LogRecordExporterInterface;
@@ -41,11 +42,14 @@ final class Flusher implements SpanFlushInterface
     // Unix time with microseconds.
     private ?float $pausedUntil = null;
 
-    /** Spans drained without export since the last failure. */
+    /** @var non-negative-int spans drained without export since the last failure */
     private int $dropped = 0;
 
-    /** The same for log records. */
+    /** @var non-negative-int the same for log records */
     private int $droppedLogs = 0;
+
+    // A record logged while exporting (an SDK logger writing to the application's) may fill the log buffer again.
+    private bool $flushing = false;
 
     private ?SpanExporterInterface $exporter = null;
 
@@ -56,7 +60,10 @@ final class Flusher implements SpanFlushInterface
      *                                                          protocol then fails like an export, not the application
      * @param CacheItemPoolInterface|null $pauses shares the pause with the other processes using it (PHP-FPM, cron);
      *                                            null: the pause holds for this process only
-     * @param Closure(): LogRecordExporterInterface|null $logExporterFactory like $exporterFactory, for $logs
+     * @param (Closure(): LogRecordExporterInterface)|null $logExporterFactory like $exporterFactory, for $logs; given
+     *                                                                         together with $logs or not at all
+     *
+     * @throws InvalidArgumentException for log records without a log exporter, or the other way round
      */
     public function __construct(
         private readonly SpanBuffer $buffer,
@@ -67,10 +74,27 @@ final class Flusher implements SpanFlushInterface
         private readonly ?LogBuffer $logs = null,
         private readonly ?Closure $logExporterFactory = null,
     ) {
+        if ((!$logs instanceof LogBuffer) !== (!$logExporterFactory instanceof Closure)) {
+            throw new InvalidArgumentException('Log records need a log exporter factory, and the factory needs the log buffer.');
+        }
     }
 
     #[Override]
     public function flush(): void
+    {
+        if ($this->flushing) {
+            return;
+        }
+
+        $this->flushing = true;
+        try {
+            $this->export();
+        } finally {
+            $this->flushing = false;
+        }
+    }
+
+    private function export(): void
     {
         $spans = $this->buffer->drain();
         $records = $this->logs?->drain() ?? [];
@@ -92,9 +116,12 @@ final class Flusher implements SpanFlushInterface
             return;
         }
 
-        if ($records !== []) {
-            $this->exportLogs($records);
+        if ($records !== [] && !$this->exportLogs($records)) {
+            return;
         }
+
+        // A clock set back would otherwise bring an old pause back.
+        $this->pausedUntil = null;
     }
 
     /**
@@ -129,10 +156,10 @@ final class Flusher implements SpanFlushInterface
     /**
      * @param non-empty-list<ReadableLogRecord> $records
      */
-    private function exportLogs(array $records): void
+    private function exportLogs(array $records): bool
     {
         try {
-            $this->logExporter ??= ($this->logExporterFactory ?? throw new LogicException('Log records need a log exporter factory.'))();
+            $this->logExporter ??= ($this->logExporterFactory ?? throw new LogicException('No log exporter factory.'))();
             $exported = $this->logExporter->export($records)->await() === true;
             $exception = null;
         } catch (Throwable $exception) {
@@ -144,17 +171,21 @@ final class Flusher implements SpanFlushInterface
             $this->droppedLogs = 0;
             $this->pause();
 
-            return;
+            return false;
         }
 
         if ($this->droppedLogs > 0) {
-            $this->logger->info('OTLP log export resumed, {dropped} log records dropped while paused.', ['dropped' => $this->droppedLogs]);
+            $this->logger->info('OTLP log export resumed, {dropped} log records dropped since the last export.', ['dropped' => $this->droppedLogs]);
             $this->droppedLogs = 0;
         }
+
+        return true;
     }
 
     /**
-     * @return array{count: int, exception?: Throwable}
+     * @param non-negative-int $count
+     *
+     * @return array{count: non-negative-int, exception?: Throwable}
      */
     private function failure(int $count, ?Throwable $exception): array
     {

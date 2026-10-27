@@ -9,6 +9,7 @@ use Monolog\LogRecord;
 use Msstc4Symfony\TracingBundle\Application\Port\TraceContextHolderInterface;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceParent;
 use OpenTelemetry\API\Logs\LogRecord as OtelLogRecord;
+use OpenTelemetry\API\Signals;
 use OpenTelemetry\API\Trace\Span;
 use OpenTelemetry\API\Trace\SpanContext;
 use OpenTelemetry\API\Trace\SpanContextInterface;
@@ -32,6 +33,8 @@ final readonly class LogRecordMapper
 {
     // Keys TraceLogProcessor adds that the record's trace context already carries.
     private const TRACE_KEYS = ['trace_id' => true, 'span_id' => true];
+
+    private const TRACE_ID = '/^(?!0{32})[0-9a-f]{32}$/D';
 
     // OpenTelemetry severity numbers (logs data model) of the Monolog levels.
     private const SEVERITIES = [
@@ -63,20 +66,19 @@ final readonly class LogRecordMapper
         private TraceContextHolderInterface $holder,
         ?int $valueLengthLimit = null,
     ) {
-        $this->valueLengthLimit = $valueLengthLimit ?? AttributeLimit::valueLength();
+        $this->valueLengthLimit = $valueLengthLimit ?? AttributeLimit::valueLength(Signals::LOGS);
         $limits = (new LogRecordLimitsBuilder())->setAttributeValueLengthLimit($this->valueLengthLimit)->build();
         $this->shared = new LoggerSharedState($resource, $limits, new NoopLogRecordProcessor());
     }
 
     public function map(LogRecord $record): ReadableLogRecord
     {
-        $traceParent = $this->holder->current()->traceParent;
         $otel = (new OtelLogRecord(Utf8::valid($record->message)))
             ->setTimestamp($this->nanos($record))
             ->setSeverityNumber(self::SEVERITIES[$record->level->value])
             ->setSeverityText($record->level->getName())
             ->setAttributes($this->attributes($record))
-            ->setContext(Context::getRoot()->withContextValue(Span::wrap($this->spanContext($traceParent))))
+            ->setContext(Context::getRoot()->withContextValue(Span::wrap($this->spanContext($record))))
         ;
 
         return new ReadableLogRecord($this->scope, $this->shared, $otel);
@@ -87,9 +89,26 @@ final readonly class LogRecordMapper
         return (int) $record->datetime->format('U') * self::NANOS_PER_SECOND + (int) $record->datetime->format('u') * self::NANOS_PER_MICRO;
     }
 
-    private function spanContext(TraceParent $traceParent): SpanContextInterface
+    /**
+     * The ids TraceLogProcessor wrote into the record when it was logged: a buffering handler (fingers_crossed, buffer)
+     * passes records on later, when another span or unit of work is current. Without them, the current span.
+     */
+    private function spanContext(LogRecord $record): SpanContextInterface
     {
-        return SpanContext::create($traceParent->traceId, $traceParent->spanId, ($traceParent->flags & TraceParent::FLAG_SAMPLED) !== 0 ? TraceFlags::SAMPLED : TraceFlags::DEFAULT);
+        $current = $this->holder->current()->traceParent;
+        $traceId = $record->extra['trace_id'] ?? null;
+        $spanId = $record->extra['span_id'] ?? null;
+        if (!is_string($traceId) || preg_match(self::TRACE_ID, $traceId) !== 1 || !is_string($spanId) || !TraceParent::isSpanId($spanId)) {
+            return SpanContext::create($current->traceId, $current->spanId, $this->traceFlags($current));
+        }
+
+        // The record does not carry the flags: those of its trace if it is still current, else not sampled.
+        return SpanContext::create($traceId, $spanId, $traceId === $current->traceId ? $this->traceFlags($current) : TraceFlags::DEFAULT);
+    }
+
+    private function traceFlags(TraceParent $traceParent): int
+    {
+        return ($traceParent->flags & TraceParent::FLAG_SAMPLED) !== 0 ? TraceFlags::SAMPLED : TraceFlags::DEFAULT;
     }
 
     /**
@@ -104,13 +123,10 @@ final readonly class LogRecordMapper
             $attributes['exception.message'] = $this->cut(Utf8::valid($exception->getMessage()));
         }
 
-        $values = [...$this->scalars($record->extra), ...$this->scalars($record->context)];
-        unset($values['exception']);
-        foreach (self::TRACE_KEYS as $key => $_) {
-            unset($values[$key]);
-        }
+        $values = array_diff_key([...$this->scalars($record->extra), ...$this->scalars($record->context)], self::TRACE_KEYS);
 
-        return [...$attributes, ...$values];
+        // The mapper's own names win over context and extra keys spelled the same.
+        return [...$values, ...$attributes];
     }
 
     /**
