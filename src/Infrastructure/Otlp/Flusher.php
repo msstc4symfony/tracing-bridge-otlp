@@ -20,18 +20,16 @@ use Throwable;
 
 /**
  * Exports the buffered spans, then the buffered log records, in one batch each. A failed export is logged once and
- * pauses that signal's export, so a collector that is down costs the timeout once per pause rather than once per
- * request or message; a log pipeline the collector lacks does not stop the spans.
+ * pauses that signal's export, so a collector that is down costs the timeout once per pause and signal rather than once
+ * per request or message; a log pipeline the collector lacks does not stop the spans.
  *
  * @internal
  */
 final class Flusher implements SpanFlushInterface
 {
-    public const PAUSE_SECONDS = 30;
+    public const PAUSE_SECONDS = ExportPause::SECONDS;
 
-    // A long-running process (worker) sees a pause another process starts within this delay, without reading the cache
-    // on every unit of work; a PHP-FPM request reads it once.
-    public const SHARED_PAUSE_READ_SECONDS = 1;
+    public const SHARED_PAUSE_READ_SECONDS = ExportPause::SHARED_READ_SECONDS;
 
     private const PAUSE_KEY = 'msstc4symfony_tracing_bridge_otlp.paused_until';
 
@@ -92,8 +90,11 @@ final class Flusher implements SpanFlushInterface
 
         $this->flushing = true;
         try {
-            $this->exportSpans($this->buffer->drain());
-            $this->exportLogs($this->logs?->drain() ?? []);
+            // Both drained first: what is logged while the spans go out waits for the next flush.
+            $spans = $this->buffer->drain();
+            $records = $this->logs?->drain() ?? [];
+            $this->exportSpans($spans);
+            $this->exportLogs($records);
         } finally {
             $this->flushing = false;
         }

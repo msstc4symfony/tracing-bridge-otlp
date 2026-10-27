@@ -601,23 +601,39 @@ final class FlusherTest extends TestCase
         self::assertCount(1, $this->logExporter->batches);
     }
 
-    public function testExportingBothSignalsEndsAPauseForGood(): void
+    public function testTheSpanPauseKeepsTheKeyOfEarlierReleases(): void
     {
-        $flusher = $this->withLogs();
-        $this->logExporter->outcome = false;
-        $this->logs->add($this->logRecord());
-        $flusher->flush();
-        $this->logExporter->outcome = true;
-        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $pauses = new ArrayAdapter();
+        $pauses->save($pauses->getItem('msstc4symfony_tracing_bridge_otlp.paused_until')->set((float) $this->clock->now()->format('U.u') + 10.0));
+
+        $flusher = $this->withLogs($pauses);
+
         $this->fill(1);
         $this->logs->add($this->logRecord());
         $flusher->flush();
 
-        $this->clock->modify('-1 hour');
+        self::assertSame([], $this->exporter->batches);
+        self::assertCount(1, $this->logExporter->batches);
+    }
+
+    public function testRecordsLoggedWhileTheSpansGoOutWaitForTheNextFlush(): void
+    {
+        $this->withLogs();
         $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $logs = $this->logs;
+
+        $exporter = new RecordingExporter();
+        $flusher = new Flusher($this->buffer, static function () use ($exporter, $logs): RecordingExporter {
+            $logs->add(LogBufferTest::record());
+
+            return $exporter;
+        }, $this->clock, $this->logger, null, $this->logs, fn (): RecordingLogExporter => $this->logExporter);
+
         $flusher->flush();
 
-        self::assertCount(2, $this->exporter->batches);
+        self::assertCount(1, $this->logExporter->batches[0] ?? []);
+        self::assertCount(1, $this->logs->drain());
     }
 
     public function testAClockSetBackAfterAResumedExportDoesNotPauseAgain(): void
@@ -637,12 +653,12 @@ final class FlusherTest extends TestCase
         self::assertCount(3, $this->exporter->batches);
     }
 
-    private function withLogs(): Flusher
+    private function withLogs(?ArrayAdapter $pauses = null): Flusher
     {
         $this->logs = new LogBuffer(100);
         $this->logExporter = new RecordingLogExporter();
 
-        return new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, null, $this->logs, fn (): RecordingLogExporter => $this->logExporter);
+        return new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses, $this->logs, fn (): RecordingLogExporter => $this->logExporter);
     }
 
     private function logRecord(): ReadableLogRecord

@@ -92,8 +92,9 @@ exporting resumes). There are no retries. Without `pause_pool`, the pause is sha
 `%kernel.share_dir%/msstc4symfony_tracing_bridge_otlp` (`%kernel.cache_dir%/…` when the kernel has no share dir), so
 the PHP-FPM children, cron commands and workers using that directory wait too: a PHP-FPM request reads it once, a
 long-running worker at most once a second. The application's cache pools are not used: their lookups are metrics. When
-the directory is not writable the pause holds per process. The cost of a down receiver is at most `timeout_ms` once per
-pause and directory: typically a host or a container, several hosts when `share_dir` is a shared volume.
+the directory is not writable the pause holds per process. Spans and log records pause separately, so a receiver without a
+log pipeline still gets the spans. The cost of a down receiver is at most `timeout_ms` once per pause, signal and
+directory: typically a host or a container, several hosts when `share_dir` is a shared volume.
 
 To share the pause between hosts, point `pause_pool` at a PSR-6 pool they share, for example a dedicated pool on Redis:
 
@@ -109,11 +110,11 @@ msstc4symfony_tracing_bridge_otlp:
     pause_pool: otlp_pause
 ```
 
-Then a down receiver costs `timeout_ms` once per pause for the whole cluster. The value is a service id without `@`.
+Then a down receiver costs `timeout_ms` once per pause and signal for the whole cluster. The value is a service id without `@`.
 The hosts must share `framework.cache.prefix_seed`: a pool's key namespace derives from it, and it defaults to the
 project directory, which differs between release directories. Prefer a pool of its own, left out of cache metrics
-(metrics-bundle `cache.pools`): a counted pool records one lookup per PHP-FPM request and at most one a second per
-worker. The hosts compare the pause with their clocks, so they need synced clocks (NTP). Each of those lookups is a
+(metrics-bundle `cache.pools`): a counted pool records one lookup per exported signal and PHP-FPM request, and at most
+one a second per signal and worker. The hosts compare the pause with their clocks, so they need synced clocks (NTP). Each of those lookups is a
 round trip, at the end of the unit of work: give the Redis provider a short
 `timeout`. A pool that fails holds the pause per process.
 
@@ -183,7 +184,8 @@ of their own without spans.
 - Every scalar value goes out, including what processors add (`ip`, `url` of WebProcessor, user ids): export only what
   you would log.
 - The records go with the spans at the end of the unit of work, or earlier when `max_buffered_logs` is reached. A failed
-  log export logs one `warning` and pauses the log export, not the spans; records of the bridge's own `otlp` channel are not exported.
+  log export logs one `warning` and pauses the log export, not the spans; records of the bridge's own `otlp` channel
+  are not exported.
 - The endpoint and protocol are the span ones; `OTEL_EXPORTER_OTLP_LOGS_*` take the place of the `_TRACES_` variables.
 
 ## Limitations

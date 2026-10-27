@@ -11,12 +11,18 @@ use Throwable;
 /**
  * The pause of one signal's export after a failure, kept in this process and, through the pool, shared with the other
  * processes using it (PHP-FPM, cron). The pool is an optimisation: when it fails, the pause holds for this process only.
+ * Times are Unix times with microseconds.
  *
  * @internal
  */
 final class ExportPause
 {
-    // Unix time with microseconds.
+    public const SECONDS = 30;
+
+    // A long-running process (worker) sees a pause another process starts within this delay, without reading the cache
+    // on every unit of work; a PHP-FPM request reads it once.
+    public const SHARED_READ_SECONDS = 1;
+
     private ?float $pausedUntil = null;
 
     private ?float $sharedPause = null;
@@ -43,9 +49,9 @@ final class ExportPause
 
     public function start(): void
     {
-        $this->pausedUntil = $this->now() + Flusher::PAUSE_SECONDS;
+        $this->pausedUntil = $this->now() + self::SECONDS;
         try {
-            $this->pool?->save($this->pool->getItem($this->key)->set($this->pausedUntil)->expiresAfter(Flusher::PAUSE_SECONDS));
+            $this->pool?->save($this->pool->getItem($this->key)->set($this->pausedUntil)->expiresAfter(self::SECONDS));
         } catch (Throwable) {
         }
     }
@@ -92,7 +98,7 @@ final class ExportPause
     private function sharedPauseReadIsFresh(float $now): bool
     {
         return $this->sharedPauseReadAt !== null && $now >= $this->sharedPauseReadAt
-            && $now - $this->sharedPauseReadAt < Flusher::SHARED_PAUSE_READ_SECONDS;
+            && $now - $this->sharedPauseReadAt < self::SHARED_READ_SECONDS;
     }
 
     private function now(): float

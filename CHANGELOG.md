@@ -10,7 +10,13 @@ All notable changes to this bundle are documented here. The format follows
 
 - A failed log export paused the span export too: a collector without a log pipeline (an OTLP 404 on `/v1/logs`) lost
   every span. Each signal now has its own pause (and its own key in `pause_pool`); a failed span export no longer drops
-  the log records of the same flush.
+  the log records of the same flush. A receiver that is down now costs up to `timeout_ms` once per pause for each
+  signal, and a pool is read once per exported signal. While 1.2.1 processes still run next to 1.2.2 ones, their log
+  failures pause the spans of the 1.2.2 processes for up to 30 seconds.
+
+### Changed
+
+- The log export's resume message reads "… log records dropped while paused." (1.2.0: "… since the last export.").
 
 ## [1.2.1] - 2026-10-27
 
