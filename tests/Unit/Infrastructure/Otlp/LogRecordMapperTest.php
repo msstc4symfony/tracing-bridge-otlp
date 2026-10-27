@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Monolog\Level;
 use Monolog\LogRecord;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\AttributeLimit;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\LogRecordMapper;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Utf8;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\Baggage;
@@ -26,6 +27,7 @@ use RuntimeException;
 
 #[CoversClass(LogRecordMapper::class)]
 #[UsesClass(Utf8::class)]
+#[UsesClass(AttributeLimit::class)]
 final class LogRecordMapperTest extends TestCase
 {
     private const TRACE = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
@@ -90,6 +92,19 @@ final class LogRecordMapperTest extends TestCase
             'order_id' => 42,
             'paid' => true,
         ], $record->getAttributes()->toArray());
+    }
+
+    #[TestWith(['00', false])]
+    #[TestWith(['02', false])]
+    #[TestWith(['01', true])]
+    #[TestWith(['03', true])]
+    public function testTheRecordIsSampledLikeItsTrace(string $flags, bool $sampled): void
+    {
+        $traceParent = TraceParent::fromHeader('00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-' . $flags);
+        self::assertInstanceOf(TraceParent::class, $traceParent);
+        $this->holder->replace(TraceContext::start()->continuing($traceParent, null, Baggage::empty()));
+
+        self::assertSame($sampled, $this->mapper()->map($this->record(Level::Info))->getSpanContext()?->isSampled());
     }
 
     public function testAnExceptionBecomesTheSemanticAttributes(): void

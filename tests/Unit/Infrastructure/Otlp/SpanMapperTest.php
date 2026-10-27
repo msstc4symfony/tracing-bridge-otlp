@@ -9,6 +9,7 @@ use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\DatabaseSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanMapper;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Utf8;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\StubSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\Suit;
 use OpenTelemetry\API\Trace\SpanKind;
@@ -23,6 +24,7 @@ use PHPUnit\Framework\TestCase;
 use stdClass;
 
 #[CoversClass(SpanMapper::class)]
+#[UsesClass(Utf8::class)]
 #[UsesClass(ExportedSpan::class)]
 #[UsesClass(SpanIds::class)]
 #[UsesClass(AttributeLimit::class)]

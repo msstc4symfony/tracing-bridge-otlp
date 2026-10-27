@@ -39,10 +39,12 @@ final class LogBufferTest extends TestCase
     public function testDrainEmptiesIt(): void
     {
         $buffer = new LogBuffer(5);
-        $record = self::record();
-        $buffer->add($record);
+        $first = self::record();
+        $second = self::record();
+        $buffer->add($first);
+        $buffer->add($second);
 
-        self::assertSame([$record], $buffer->drain());
+        self::assertSame([$first, $second], $buffer->drain());
         self::assertSame([], $buffer->drain());
     }
 

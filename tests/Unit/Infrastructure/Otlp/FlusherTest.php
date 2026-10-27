@@ -401,6 +401,96 @@ final class FlusherTest extends TestCase
         self::assertSame('OTLP span export failed, {count} spans dropped.', $this->logger->records[0]['message'] ?? null);
     }
 
+    public function testAnEmptyFlushDuringThePauseKeepsThePause(): void
+    {
+        $flusher = $this->withLogs();
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $flusher->flush();
+        $this->exporter->outcome = true;
+
+        $flusher->flush();
+        $this->fill(1);
+        $flusher->flush();
+
+        self::assertCount(1, $this->exporter->batches);
+    }
+
+    public function testDroppedLogRecordsAddUpUntilTheyAreReported(): void
+    {
+        $flusher = $this->withLogs();
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->logExporter->outcome = false;
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        self::assertSame('OTLP log export failed, {count} log records dropped.', $this->logger->records[2]['message'] ?? null);
+        self::assertSame(4, $this->logger->records[2]['context']['count'] ?? null);
+    }
+
+    public function testTheResumeCountStartsAfreshForLogRecords(): void
+    {
+        $flusher = $this->withLogs();
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+        $this->exporter->outcome = true;
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        $this->logExporter->outcome = false;
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        self::assertSame(['dropped' => 1], $this->logger->records[1]['context'] ?? null);
+        self::assertSame(1, $this->logger->records[2]['context']['count'] ?? null);
+    }
+
+    public function testTheLogExporterIsBuiltOnce(): void
+    {
+        $built = 0;
+        $this->logs = new LogBuffer(100);
+        $this->logExporter = new RecordingLogExporter();
+        $flusher = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, null, $this->logs, function () use (&$built): RecordingLogExporter {
+            $built++;
+
+            return $this->logExporter;
+        });
+
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        self::assertSame(1, $built);
+        self::assertCount(2, $this->logExporter->batches);
+    }
+
+    public function testLogRecordsWithoutALogExporterAreDroppedWithOneWarning(): void
+    {
+        $this->logs = new LogBuffer(100);
+        $flusher = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, null, $this->logs);
+        $this->logs->add($this->logRecord());
+
+        $flusher->flush();
+
+        self::assertSame('OTLP log export failed, {count} log records dropped.', $this->logger->records[0]['message'] ?? null);
+    }
+
     private function withLogs(): Flusher
     {
         $this->logs = new LogBuffer(100);

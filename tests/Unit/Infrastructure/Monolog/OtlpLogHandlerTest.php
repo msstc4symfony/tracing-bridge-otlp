@@ -9,6 +9,7 @@ use Monolog\Level;
 use Monolog\LogRecord;
 use Msstc4Symfony\TracingBridgeOtlp\Application\Port\SpanFlushInterface;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Monolog\OtlpLogHandler;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\AttributeLimit;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\LogBuffer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\LogRecordMapper;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Utf8;
@@ -25,6 +26,7 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(LogBuffer::class)]
 #[UsesClass(LogRecordMapper::class)]
 #[UsesClass(Utf8::class)]
+#[UsesClass(AttributeLimit::class)]
 final class OtlpLogHandlerTest extends TestCase
 {
     private LogBuffer $buffer;

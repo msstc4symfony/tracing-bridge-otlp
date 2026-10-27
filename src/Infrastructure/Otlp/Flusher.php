@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
 use Closure;
+use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Application\Port\SpanFlushInterface;
 use OpenTelemetry\SDK\Logs\LogRecordExporterInterface;
 use OpenTelemetry\SDK\Logs\ReadableLogRecord;
@@ -91,11 +92,9 @@ final class Flusher implements SpanFlushInterface
             return;
         }
 
-        if ($records !== [] && !$this->exportLogs($records)) {
-            return;
+        if ($records !== []) {
+            $this->exportLogs($records);
         }
-
-        $this->pausedUntil = null;
     }
 
     /**
@@ -130,11 +129,11 @@ final class Flusher implements SpanFlushInterface
     /**
      * @param non-empty-list<ReadableLogRecord> $records
      */
-    private function exportLogs(array $records): bool
+    private function exportLogs(array $records): void
     {
         try {
-            $this->logExporter ??= $this->logExporterFactory instanceof Closure ? ($this->logExporterFactory)() : null;
-            $exported = $this->logExporter?->export($records)->await() === true;
+            $this->logExporter ??= ($this->logExporterFactory ?? throw new LogicException('Log records need a log exporter factory.'))();
+            $exported = $this->logExporter->export($records)->await() === true;
             $exception = null;
         } catch (Throwable $exception) {
             $exported = false;
@@ -145,15 +144,13 @@ final class Flusher implements SpanFlushInterface
             $this->droppedLogs = 0;
             $this->pause();
 
-            return false;
+            return;
         }
 
         if ($this->droppedLogs > 0) {
             $this->logger->info('OTLP log export resumed, {dropped} log records dropped while paused.', ['dropped' => $this->droppedLogs]);
             $this->droppedLogs = 0;
         }
-
-        return true;
     }
 
     /**

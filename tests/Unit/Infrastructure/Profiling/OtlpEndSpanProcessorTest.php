@@ -11,6 +11,7 @@ use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanBuffer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanMapper;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Utf8;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\CreationRecorder;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\OtlpEndSpanProcessor;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Profiling\ReportedNames;
@@ -52,6 +53,7 @@ use Symfony\Component\Messenger\Event\WorkerMessageReceivedEvent;
 #[UsesClass(DatabaseSpan::class)]
 #[UsesClass(AttributeLimit::class)]
 #[UsesClass(SpanMapper::class)]
+#[UsesClass(Utf8::class)]
 #[UsesClass(SpanBuffer::class)]
 #[UsesClass(SpanIds::class)]
 #[UsesClass(ExportedSpan::class)]
