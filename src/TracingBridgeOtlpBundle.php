@@ -6,6 +6,7 @@ namespace Msstc4Symfony\TracingBridgeOtlp;
 
 use InvalidArgumentException;
 use LogicException;
+use Monolog\Handler\AbstractProcessingHandler;
 use Override;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -21,6 +22,7 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  *     timeout_ms: positive-int,
  *     max_buffered_spans: positive-int,
  *     pause_pool: non-empty-string|null,
+ *     logs: array{enabled: bool, level: 'debug'|'info'|'notice'|'warning'|'error'|'critical'|'alert'|'emergency', max_buffered_logs: positive-int},
  * }
  */
 final class TracingBridgeOtlpBundle extends AbstractBundle
@@ -29,6 +31,11 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
 
     // Also ExporterFactory::GRPC_TRANSPORT_FACTORY: deptrac keeps the bundle class off Infrastructure.
     private const GRPC_TRANSPORT_FACTORY = 'OpenTelemetry\Contrib\Grpc\GrpcTransportFactory';
+
+    // The base class of the log handler; monolog/monolog is optional.
+    private const MONOLOG_HANDLER = AbstractProcessingHandler::class;
+
+    private const LOG_LEVELS = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
 
     protected string $extensionAlias = 'msstc4symfony_tracing_bridge_otlp';
 
@@ -75,6 +82,23 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
                         ->thenInvalid('pause_pool must be ~ or a service id without "@", %s given.')
                     ->end()
                 ->end()
+                ->arrayNode('logs')
+                    ->info('Monolog records over OTLP through the handler msstc4symfony_tracing_bridge_otlp.logs_handler (add it to monolog.handlers as type: service).')
+                    ->canBeEnabled()
+                    ->children()
+                        ->enumNode('level')
+                            ->info('Lowest level exported.')
+                            ->values(self::LOG_LEVELS)
+                            ->defaultValue('info')
+                            ->beforeNormalization()->ifString()->then(strtolower(...))->end()
+                        ->end()
+                        ->integerNode('max_buffered_logs')
+                            ->info('Log records kept per unit of work; a full buffer is exported early.')
+                            ->min(1)
+                            ->defaultValue(2048)
+                        ->end()
+                    ->end()
+                ->end()
             ->end()
         ;
     }
@@ -101,6 +125,10 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
         // A service id is fixed when the container is built; the placeholder would become an id of its own.
         if ($config['pause_pool'] !== null && $builder->resolveEnvPlaceholders($config['pause_pool'], '%%env(%s)%%') !== $config['pause_pool']) {
             throw new LogicException('msstc4symfony_tracing_bridge_otlp.pause_pool is a service id and takes no env placeholder.');
+        }
+
+        if ($config['logs']['enabled'] && !class_exists(self::MONOLOG_HANDLER)) {
+            throw new LogicException('msstc4symfony_tracing_bridge_otlp.logs needs monolog/monolog.');
         }
 
         foreach ($config as $key => $value) {

@@ -4,6 +4,21 @@ All notable changes to this bundle are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow
 [Semantic Versioning](https://semver.org/); dates are UTC.
 
+## [1.2.0] - 2026-10-27
+
+### Added
+
+- Logs over OTLP (`logs.enabled`, `logs.level`, `logs.max_buffered_logs`): the Monolog handler
+  `msstc4symfony_tracing_bridge_otlp.logs_handler` buffers records of the current span and exports them with the spans
+  at the end of the unit of work; `OTEL_EXPORTER_OTLP_LOGS_*` variables apply. Needs `monolog/monolog`.
+- An `exception` span event for a span with an `exception`, and a link from a `message …` CONSUMER span to the sender.
+
+### Changed
+
+- The HTTP client span keeps the span id tracing-bridge-profiling 1.3 reserved for its request, so the receiver's server
+  span is its child; requires profiling-bundle ^2.3.1, tracing-bundle ^2.4 and tracing-bridge-profiling ^1.3.
+- `profiling_outgoing_request` is not exported as an attribute.
+
 ## [1.1.0] - 2026-10-26
 
 ### Added
@@ -53,5 +68,7 @@ All notable changes to this bundle are documented here. The format follows
   `OTEL_EXPORTER_OTLP_*` (endpoint, protocol, headers, compression, certificates), `OTEL_SERVICE_NAME` and
   `OTEL_RESOURCE_ATTRIBUTES` variables as fallbacks.
 
+[1.2.0]: https://github.com/msstc4symfony/tracing-bridge-otlp/releases/tag/v1.2.0
+[1.1.0]: https://github.com/msstc4symfony/tracing-bridge-otlp/releases/tag/v1.1.0
 [1.0.1]: https://github.com/msstc4symfony/tracing-bridge-otlp/releases/tag/v1.0.1
 [1.0.0]: https://github.com/msstc4symfony/tracing-bridge-otlp/releases/tag/v1.0.0

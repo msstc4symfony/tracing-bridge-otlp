@@ -1,0 +1,134 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
+
+use DateTimeImmutable;
+use DateTimeZone;
+use Monolog\Level;
+use Monolog\LogRecord;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\LogRecordMapper;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Utf8;
+use Msstc4Symfony\TracingBundle\Domain\ValueObject\Baggage;
+use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceContext;
+use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceParent;
+use Msstc4Symfony\TracingBundle\Infrastructure\Context\InMemoryTraceContextHolder;
+use OpenTelemetry\SDK\Common\Attribute\Attributes;
+use OpenTelemetry\SDK\Common\Instrumentation\InstrumentationScope;
+use OpenTelemetry\SDK\Resource\ResourceInfo;
+use Override;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\TestWith;
+use PHPUnit\Framework\Attributes\UsesClass;
+use PHPUnit\Framework\TestCase;
+use RuntimeException;
+
+#[CoversClass(LogRecordMapper::class)]
+#[UsesClass(Utf8::class)]
+final class LogRecordMapperTest extends TestCase
+{
+    private const TRACE = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+
+    private InMemoryTraceContextHolder $holder;
+
+    #[Override]
+    protected function setUp(): void
+    {
+        $this->holder = new InMemoryTraceContextHolder();
+        $traceParent = TraceParent::fromHeader(self::TRACE);
+        self::assertInstanceOf(TraceParent::class, $traceParent);
+        $this->holder->replace(TraceContext::start()->continuing($traceParent, null, Baggage::empty()));
+    }
+
+    public function testMapsTimeSeverityBodyAndTheCurrentSpan(): void
+    {
+        $record = $this->mapper()->map($this->record(Level::Warning, 'Payment declined', datetime: new DateTimeImmutable('2026-10-27 10:00:00.123456', new DateTimeZone('UTC'))));
+
+        self::assertSame(1_793_095_200_123_456_000, $record->getTimestamp());
+        self::assertSame(13, $record->getSeverityNumber());
+        self::assertSame('WARNING', $record->getSeverityText());
+        self::assertSame('Payment declined', $record->getBody());
+        $span = $record->getSpanContext();
+        self::assertNotNull($span);
+        self::assertSame('4bf92f3577b34da6a3ce929d0e0e4736', $span->getTraceId());
+        self::assertSame($this->holder->current()->traceParent->spanId, $span->getSpanId());
+        self::assertTrue($span->isSampled());
+    }
+
+    #[TestWith([Level::Debug, 5])]
+    #[TestWith([Level::Info, 9])]
+    #[TestWith([Level::Notice, 10])]
+    #[TestWith([Level::Warning, 13])]
+    #[TestWith([Level::Error, 17])]
+    #[TestWith([Level::Critical, 18])]
+    #[TestWith([Level::Alert, 19])]
+    #[TestWith([Level::Emergency, 21])]
+    public function testMapsEveryLevelToItsSeverity(Level $level, int $severity): void
+    {
+        self::assertSame($severity, $this->mapper()->map($this->record($level))->getSeverityNumber());
+    }
+
+    public function testExportsScalarContextAndExtraWithTheChannel(): void
+    {
+        $record = $this->mapper()->map($this->record(Level::Info, context: [
+            'order_id' => 42,
+            'paid' => true,
+            'items' => ['a'],
+            'none' => null,
+            'ratio' => NAN,
+        ], extra: [
+            'trace_id' => 'x',
+            'span_id' => 'y',
+            'runtime_id' => 'r1',
+            'order_id' => 7,
+        ]));
+
+        self::assertSame([
+            'monolog.channel' => 'app',
+            'runtime_id' => 'r1',
+            'order_id' => 42,
+            'paid' => true,
+        ], $record->getAttributes()->toArray());
+    }
+
+    public function testAnExceptionBecomesTheSemanticAttributes(): void
+    {
+        $record = $this->mapper()->map($this->record(Level::Error, context: ['exception' => new RuntimeException('card expired')]));
+
+        $attributes = $record->getAttributes()->toArray();
+        self::assertSame(RuntimeException::class, $attributes['exception.type'] ?? null);
+        self::assertSame('card expired', $attributes['exception.message'] ?? null);
+        self::assertArrayNotHasKey('exception', $attributes);
+    }
+
+    public function testLongAndBrokenStringsAreMadeSafe(): void
+    {
+        $record = $this->mapper(4)->map($this->record(Level::Info, "caf\xE9 au lait", context: ['note' => 'abcdefgh', "k\xFF" => 'dropped']));
+
+        self::assertSame('caf? au lait', $record->getBody(), 'the body is not an attribute: no length limit');
+        self::assertSame(['monolog.channel' => 'app', 'note' => 'abcd'], $record->getAttributes()->toArray());
+    }
+
+    /**
+     * @param positive-int|null $limit
+     */
+    private function mapper(?int $limit = null): LogRecordMapper
+    {
+        return new LogRecordMapper(
+            new InstrumentationScope('test', null, null, Attributes::create([])),
+            ResourceInfo::create(Attributes::create([])),
+            $this->holder,
+            $limit,
+        );
+    }
+
+    /**
+     * @param array<array-key, mixed> $context
+     * @param array<array-key, mixed> $extra
+     */
+    private function record(Level $level, string $message = 'm', array $context = [], array $extra = [], ?DateTimeImmutable $datetime = null): LogRecord
+    {
+        return new LogRecord($datetime ?? new DateTimeImmutable(), 'app', $level, $message, $context, $extra);
+    }
+}

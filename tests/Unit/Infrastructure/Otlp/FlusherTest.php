@@ -7,10 +7,13 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\Flusher;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\LogBuffer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanBuffer;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\SpanIds;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingExporter;
+use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingLogExporter;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Support\RecordingLogger;
+use OpenTelemetry\SDK\Logs\ReadableLogRecord;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\UsesClass;
@@ -23,6 +26,7 @@ use Symfony\Component\Clock\MockClock;
 
 #[CoversClass(Flusher::class)]
 #[UsesClass(SpanBuffer::class)]
+#[UsesClass(LogBuffer::class)]
 #[UsesClass(ExportedSpan::class)]
 #[UsesClass(SpanIds::class)]
 final class FlusherTest extends TestCase
@@ -36,6 +40,10 @@ final class FlusherTest extends TestCase
     private RecordingLogger $logger;
 
     private Flusher $flusher;
+
+    private LogBuffer $logs;
+
+    private RecordingLogExporter $logExporter;
 
     #[Override]
     protected function setUp(): void
@@ -325,6 +333,85 @@ final class FlusherTest extends TestCase
         $this->flusher->flush();
 
         self::assertCount(1, $this->logger->records);
+    }
+
+    public function testLogRecordsGoInTheSameFlushThroughTheirOwnExporter(): void
+    {
+        $flusher = $this->withLogs();
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $this->logs->add($this->logRecord());
+
+        $flusher->flush();
+        $flusher->flush();
+
+        self::assertCount(1, $this->exporter->batches);
+        self::assertCount(1, $this->logExporter->batches);
+        self::assertCount(2, $this->logExporter->batches[0]);
+        self::assertSame([], $this->logger->records);
+    }
+
+    public function testLogRecordsAloneAreExported(): void
+    {
+        $flusher = $this->withLogs();
+        $this->logs->add($this->logRecord());
+
+        $flusher->flush();
+
+        self::assertSame([], $this->exporter->batches);
+        self::assertCount(1, $this->logExporter->batches);
+    }
+
+    public function testAFailedLogExportLogsOneWarningAndPausesBothSignals(): void
+    {
+        $flusher = $this->withLogs();
+        $this->logExporter->outcome = new RuntimeException('down');
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        self::assertSame([], $this->exporter->batches);
+        self::assertCount(1, $this->logExporter->batches);
+        self::assertCount(1, $this->logger->records);
+        self::assertSame('OTLP log export failed, {count} log records dropped.', $this->logger->records[0]['message']);
+        self::assertSame(1, $this->logger->records[0]['context']['count'] ?? null);
+
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->logExporter->outcome = true;
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        self::assertSame(['level' => 'info', 'message' => 'OTLP log export resumed, {dropped} log records dropped while paused.', 'context' => ['dropped' => 1]], $this->logger->records[1] ?? null);
+    }
+
+    public function testAFailedSpanExportDropsTheLogRecordsOfTheFlushToo(): void
+    {
+        $flusher = $this->withLogs();
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+
+        $flusher->flush();
+
+        self::assertSame([], $this->logExporter->batches);
+        self::assertSame([], $this->logs->drain());
+        self::assertSame('OTLP span export failed, {count} spans dropped.', $this->logger->records[0]['message'] ?? null);
+    }
+
+    private function withLogs(): Flusher
+    {
+        $this->logs = new LogBuffer(100);
+        $this->logExporter = new RecordingLogExporter();
+
+        return new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, null, $this->logs, fn (): RecordingLogExporter => $this->logExporter);
+    }
+
+    private function logRecord(): ReadableLogRecord
+    {
+        return LogBufferTest::record();
     }
 
     private function fill(int $count): void

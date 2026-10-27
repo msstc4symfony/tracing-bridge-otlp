@@ -14,6 +14,8 @@ OpenTelemetry SDK does not run the spans: it would make up ids of its own.
 | Bundle | PHP  | Symfony  | profiling-bundle | tracing-bundle | tracing-bridge-profiling |
 |--------|------|----------|------------------|----------------|--------------------------|
 | 1.0    | 8.2+ | 7.4, 8.x | ^2.2             | ^2.2           | ^1.2                     |
+| 1.1    | 8.2+ | 7.4, 8.x | ^2.2             | ^2.2           | ^1.2                     |
+| 1.2    | 8.2+ | 7.4, 8.x | ^2.3.1           | ^2.4           | ^1.3                     |
 
 64-bit PHP. Symfony 8.x needs PHP 8.4; on PHP 8.2 and 8.3 Composer installs Symfony 7.4.
 
@@ -49,7 +51,7 @@ Every span profiling records, once it ends, when its trace is sampled:
 |---|---|---|
 | Unit of work: `request <route>`, `cli command <name>`, `message <class>`, `action <class>` (with tracing-bridge-logic) | the unit's span of tracing-bundle; parent: the caller's span from `traceparent` / `TraceStamp` (remote), the enclosing unit, or none | SERVER, INTERNAL, CONSUMER, INTERNAL |
 | A span tracing-bridge-profiling traced (yours, DBAL, Action) | its `trace_span_id` / `trace_parent_span_id` | CLIENT for profiling's automatic DBAL spans, else INTERNAL |
-| Detached HTTP client span of profiling | a new span id under the span current when the request started | CLIENT |
+| Detached HTTP client span of profiling | the span id tracing-bridge-profiling reserved for the request (the one its `traceparent` names), under the span current when the request started | CLIENT |
 
 - Name: the span message; bytes that are not UTF-8 become `?` (the OTLP encoder rejects them). Times: start and
   duration of profiling, microsecond precision.
@@ -62,6 +64,8 @@ Every span profiling records, once it ends, when its trace is sampled:
   batch over the receiver's size limit. The bridge adds nothing profiling did not record (no SQL text, no query string).
 - Status: ERROR with a non-empty `exception`, `message_failed: true` or an HTTP status of 500 and above; otherwise
   unset.
+- Events: a span with a non-empty `exception` records an `exception` event (attribute `exception.type`) at its end.
+- Links: a `message …` CONSUMER span links to the sender's span (its remote parent), as the messaging conventions ask.
 - Resource: `service.name` from `service_name`, else `OTEL_SERVICE_NAME` / `OTEL_RESOURCE_ATTRIBUTES`, else the name of
   the project directory; the SDK's resource detectors add the rest. Scope: `msstc4symfony/tracing-bridge-otlp`.
 
@@ -128,6 +132,10 @@ msstc4symfony_tracing_bridge_otlp:
     timeout_ms: 1000         # whole export request
     max_buffered_spans: 2048 # spans per unit of work before an early export
     pause_pool: ~            # PSR-6 pool service id for the export pause; ~: files in kernel.share_dir, else kernel.cache_dir
+    logs:
+        enabled: false       # true: Monolog records over OTLP (see Logs)
+        level: info          # lowest Monolog level exported
+        max_buffered_logs: 2048
 ```
 
 `service_name` and `endpoint` take env placeholders (`'%env(OTLP_ENDPOINT)%'`); an empty value means unset, as an
@@ -148,10 +156,32 @@ compile. gRPC chosen through the variables fails at the first export instead (on
 The OpenTelemetry SDK also reports a failed export through its own logger (`OTEL_PHP_LOG_DESTINATION`, by default
 PHP's error log). Set `OTEL_PHP_LOG_DESTINATION=none` to keep only the bridge's `warning`.
 
+## Logs
+
+With `logs.enabled` the bundle registers the Monolog handler `msstc4symfony_tracing_bridge_otlp.logs_handler`; add it
+to your handlers (it needs `monolog/monolog`):
+
+```yaml
+monolog:
+    handlers:
+        otlp:
+            type: service
+            id: msstc4symfony_tracing_bridge_otlp.logs_handler
+```
+
+Each record becomes an OTLP log record of the span current when it was written (trace id, span id, sampled flag of
+tracing-bundle — also for an unsampled trace): body = the message, severity from the level, attributes =
+`monolog.channel` plus the scalar `extra` and `context` values (context wins; tracing-bundle's `trace_id` and `span_id`
+are the record's trace context instead), and `exception.type` / `exception.message` for a `Throwable` in
+`context['exception']`. Values are cut and cleaned like span attributes; the body is cleaned but not cut. The records go
+with the spans at the end of the unit of work, or earlier when `max_buffered_logs` is reached; a failed log export logs
+one `warning` and pauses both exports. Records of the bridge's own `otlp` channel are not exported. The endpoint and
+protocol are the span ones; `OTEL_EXPORTER_OTLP_LOGS_*` take the place of the `_TRACES_` variables.
+
 ## Limitations
 
-- The `traceparent` an HTTP client request sends names the span around the call, not the exported CLIENT span: in the
-  receiver's trace the server span is a sibling of the CLIENT span rather than its child.
+- A Guzzle redirect is a new pass through the handler stack: its `traceparent` names the span around the call, not the
+  CLIENT span (Symfony HttpClient keeps the CLIENT span on every redirect).
 - A fatal error ends PHP before the export: the spans of that unit of work are lost.
 - One buffer serves the container: spans of concurrent Fibers share it.
 - With an asynchronous Messenger execution strategy the worker may move on before the handler ran: the `message …`

@@ -21,8 +21,10 @@ use Symfony\Contracts\Service\ResetInterface;
 /**
  * Finds the ids of an ended profiling span:
  * - a unit span (request, command, message, action) is the unit's own trace span;
- * - a span tracing-bridge-profiling traced keeps its trace_span_id / trace_parent_span_id;
- * - a detached span (HTTP client) gets a new id under the span current when it was created.
+ * - a span tracing-bridge-profiling traced keeps its trace_span_id / trace_parent_span_id — since its 1.3 also the
+ *   HTTP client span, whose id the request's traceparent carries;
+ * - a detached span without them (an older tracing-bridge-profiling) gets a new id under the span current when it
+ *   was created.
  * Anything else has no place in the trace.
  *
  * @internal
@@ -102,7 +104,8 @@ final readonly class SpanPlacer implements ResetInterface
                 $this->logger->debug('Span "{span}" has an invalid trace_parent_span_id; it is exported as a root.', ['span' => $span->getMessage()]);
             }
 
-            $kind = DatabaseSpan::connection($context) !== null ? SpanKind::KIND_CLIENT : SpanKind::KIND_INTERNAL;
+            $client = DatabaseSpan::connection($context) !== null || $this->matches($context, DetachedSpanFactoryInterface::DETACHED);
+            $kind = $client ? SpanKind::KIND_CLIENT : SpanKind::KIND_INTERNAL;
 
             return new SpanPlacement($this->ids($trace, $spanId, $parent, false), $kind, null);
         }

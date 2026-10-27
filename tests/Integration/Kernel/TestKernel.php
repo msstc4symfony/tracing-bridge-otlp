@@ -17,6 +17,7 @@ use Msstc4Symfony\TracingBridgeProfiling\TracingBridgeProfilingBundle;
 use Msstc4Symfony\TracingBundle\Framework\Messenger\IncomingTraceMiddleware;
 use Msstc4Symfony\TracingBundle\Framework\Messenger\OutgoingTraceMiddleware;
 use Msstc4Symfony\TracingBundle\TracingBundle;
+use OpenTelemetry\SDK\Logs\Exporter\InMemoryExporter as LogsInMemoryExporter;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use Override;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
@@ -50,6 +51,11 @@ final class TestKernel extends Kernel
 
     // The bridge before profiling-bundle: services are reset in registration order.
     public const ENV_BRIDGE_FIRST = 'bridge_first';
+
+    // Logs over OTLP through the bridge's Monolog handler.
+    public const ENV_LOGS = 'logs';
+
+    public const LOG_EXPORTER = 'msstc4symfony_tracing_bridge_otlp.log_exporter';
 
     // Per process: parallel PHPUnit runs must not wipe each other's container.
     public static function cacheRoot(): string
@@ -95,9 +101,12 @@ final class TestKernel extends Kernel
                 'routing' => [Job::class => 'async'],
             ],
         ]);
-        $container->extension('monolog', ['handlers' => [
-            'collecting' => ['type' => 'service', 'id' => CollectingHandler::class],
-        ]]);
+        $handlers = ['collecting' => ['type' => 'service', 'id' => CollectingHandler::class]];
+        if ($this->environment === self::ENV_LOGS) {
+            $handlers['otlp'] = ['type' => 'service', 'id' => 'msstc4symfony_tracing_bridge_otlp.logs_handler'];
+            $container->extension('msstc4symfony_tracing_bridge_otlp', ['logs' => ['enabled' => true]]);
+        }
+        $container->extension('monolog', ['handlers' => $handlers]);
         $container->extension('msstc4symfony_profiling', [
             'routes' => ['traced'],
             'commands' => ['app:job'],
@@ -130,6 +139,9 @@ final class TestKernel extends Kernel
             $services->set(self::EXPORTER, RecordingExporter::class)->args([false])->public();
         } elseif ($this->environment !== self::ENV_DISABLED) {
             $services->set(self::EXPORTER, InMemoryExporter::class)->public();
+        }
+        if ($this->environment === self::ENV_LOGS) {
+            $services->set(self::LOG_EXPORTER, LogsInMemoryExporter::class)->public();
         }
     }
 

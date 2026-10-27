@@ -6,10 +6,15 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
 use LogicException;
 use Nyholm\Psr7\Factory\Psr17Factory;
+use OpenTelemetry\API\Signals;
+use OpenTelemetry\Contrib\Otlp\ContentTypes;
+use OpenTelemetry\Contrib\Otlp\LogsExporter;
 use OpenTelemetry\Contrib\Otlp\Protocols;
 use OpenTelemetry\Contrib\Otlp\SpanExporter;
 use OpenTelemetry\SDK\Common\Export\Http\PsrTransportFactory;
 use OpenTelemetry\SDK\Common\Export\TransportFactoryInterface;
+use OpenTelemetry\SDK\Common\Export\TransportInterface;
+use OpenTelemetry\SDK\Logs\LogRecordExporterInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\HttpClient\Psr18Client;
@@ -40,9 +45,25 @@ final class ExporterFactory
      */
     public static function create(?string $endpoint, ?string $protocol, int $timeoutMs): SpanExporterInterface
     {
-        $settings = ExporterSettings::resolve($endpoint, $protocol, $timeoutMs);
+        return new SpanExporter(self::transport(ExporterSettings::resolve($endpoint, $protocol, $timeoutMs)));
+    }
 
-        return new SpanExporter(self::transportFactory($settings)->create(
+    /**
+     * @param string|null $endpoint base URL; null or "": the OTEL_EXPORTER_OTLP_LOGS_* / OTEL_EXPORTER_OTLP_* variables
+     * @param 'http/protobuf'|'http/json'|'grpc'|null $protocol null: the same variables
+     * @param positive-int $timeoutMs
+     */
+    public static function createLogs(?string $endpoint, ?string $protocol, int $timeoutMs): LogRecordExporterInterface
+    {
+        return new LogsExporter(self::transport(ExporterSettings::resolve($endpoint, $protocol, $timeoutMs, Signals::LOGS)));
+    }
+
+    /**
+     * @return TransportInterface<ContentTypes::*>
+     */
+    private static function transport(ExporterSettings $settings): TransportInterface
+    {
+        return self::transportFactory($settings)->create(
             $settings->endpoint,
             $settings->contentType,
             $settings->headers,
@@ -53,7 +74,7 @@ final class ExporterFactory
             $settings->caFile,
             $settings->clientCertificate,
             $settings->clientKey,
-        ));
+        );
     }
 
     private static function transportFactory(ExporterSettings $settings): TransportFactoryInterface

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "07c6fc548c09a02f57b9bc07567754e1",
+    "content-hash": "e90ed20e759119cc43d4ccc5704c50cb",
     "packages": [
         {
             "name": "brick/math",
@@ -294,16 +294,16 @@
         },
         {
             "name": "msstc4symfony/profiling-bundle",
-            "version": "v2.2.0",
+            "version": "v2.3.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/msstc4symfony/profiling-bundle.git",
-                "reference": "dc4755fb51bd68d3775f3134faf4c639cfc076ee"
+                "reference": "7d870c79136d28241f508e7fcf8cffb119edf5e0"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/msstc4symfony/profiling-bundle/zipball/dc4755fb51bd68d3775f3134faf4c639cfc076ee",
-                "reference": "dc4755fb51bd68d3775f3134faf4c639cfc076ee",
+                "url": "https://api.github.com/repos/msstc4symfony/profiling-bundle/zipball/7d870c79136d28241f508e7fcf8cffb119edf5e0",
+                "reference": "7d870c79136d28241f508e7fcf8cffb119edf5e0",
                 "shasum": ""
             },
             "require": {
@@ -382,28 +382,28 @@
                 "symfony"
             ],
             "support": {
-                "source": "https://github.com/msstc4symfony/profiling-bundle/tree/v2.2.0"
+                "source": "https://github.com/msstc4symfony/profiling-bundle/tree/v2.3.1"
             },
-            "time": "2026-10-23T07:34:39+00:00"
+            "time": "2026-10-27T06:27:45+00:00"
         },
         {
             "name": "msstc4symfony/tracing-bridge-profiling",
-            "version": "v1.2.0",
+            "version": "v1.3.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/msstc4symfony/tracing-bridge-profiling.git",
-                "reference": "03e08f37277b79269161387ea219de2ab17ab6c1"
+                "reference": "c06b6cb68da99fdd7fa95ecfc3131e29ecda18fd"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/msstc4symfony/tracing-bridge-profiling/zipball/03e08f37277b79269161387ea219de2ab17ab6c1",
-                "reference": "03e08f37277b79269161387ea219de2ab17ab6c1",
+                "url": "https://api.github.com/repos/msstc4symfony/tracing-bridge-profiling/zipball/c06b6cb68da99fdd7fa95ecfc3131e29ecda18fd",
+                "reference": "c06b6cb68da99fdd7fa95ecfc3131e29ecda18fd",
                 "shasum": ""
             },
             "require": {
                 "composer-runtime-api": ">=2.2",
-                "msstc4symfony/profiling-bundle": "^2.2",
-                "msstc4symfony/tracing-bundle": "^2.0",
+                "msstc4symfony/profiling-bundle": "^2.3.1",
+                "msstc4symfony/tracing-bundle": "^2.4",
                 "php": ">=8.2",
                 "symfony/config": "^7.4|^8.0",
                 "symfony/dependency-injection": "^7.4|^8.0",
@@ -415,6 +415,7 @@
             },
             "require-dev": {
                 "friendsofphp/php-cs-fixer": "^3.76",
+                "guzzlehttp/guzzle": "^7.8|^8.0",
                 "phpstan/extension-installer": "^1.4",
                 "phpstan/phpstan": "^2.1",
                 "phpstan/phpstan-strict-rules": "^2.0",
@@ -425,6 +426,7 @@
                 "roave/security-advisories": "dev-latest",
                 "symfony/filesystem": "^7.4|^8.0",
                 "symfony/framework-bundle": "^7.4|^8.0",
+                "symfony/http-client": "^7.4|^8.0",
                 "symfony/monolog-bundle": "^3.11|^4.0"
             },
             "type": "symfony-bundle",
@@ -461,23 +463,23 @@
                 "tracing"
             ],
             "support": {
-                "source": "https://github.com/msstc4symfony/tracing-bridge-profiling/tree/v1.2.0",
+                "source": "https://github.com/msstc4symfony/tracing-bridge-profiling/tree/v1.3.0",
                 "issues": "https://github.com/msstc4symfony/tracing-bridge-profiling/issues"
             },
-            "time": "2026-10-24T04:40:29+00:00"
+            "time": "2026-10-27T06:39:33+00:00"
         },
         {
             "name": "msstc4symfony/tracing-bundle",
-            "version": "v2.2.0",
+            "version": "v2.4.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/msstc4symfony/tracing-bundle.git",
-                "reference": "5bc1f580d533898f96dd5a57afcacdb497984ce4"
+                "reference": "c3f9a980a54b610c887ff3f524d8f13ca7fe1606"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/msstc4symfony/tracing-bundle/zipball/5bc1f580d533898f96dd5a57afcacdb497984ce4",
-                "reference": "5bc1f580d533898f96dd5a57afcacdb497984ce4",
+                "url": "https://api.github.com/repos/msstc4symfony/tracing-bundle/zipball/c3f9a980a54b610c887ff3f524d8f13ca7fe1606",
+                "reference": "c3f9a980a54b610c887ff3f524d8f13ca7fe1606",
                 "shasum": ""
             },
             "require": {
@@ -543,9 +545,9 @@
                 "tracing"
             ],
             "support": {
-                "source": "https://github.com/msstc4symfony/tracing-bundle/tree/v2.2.0"
+                "source": "https://github.com/msstc4symfony/tracing-bundle/tree/v2.4.0"
             },
-            "time": "2026-10-25T10:36:16+00:00"
+            "time": "2026-10-27T06:02:57+00:00"
         },
         {
             "name": "nyholm/psr7",

@@ -70,9 +70,20 @@ final class SpanMapperTest extends TestCase
         self::assertSame('00f067aa0ba902b7', $remote->getParentSpanId());
     }
 
+    public function testAnExceptionBecomesAnEventAtTheEndOfTheSpan(): void
+    {
+        $failed = $this->mapper()->map(new StubSpan('x'), ['exception' => 'RuntimeException'], $this->ids(), SpanKind::KIND_INTERNAL, null);
+        $fine = $this->mapper()->map(new StubSpan('x'), [], $this->ids(), SpanKind::KIND_INTERNAL, null);
+
+        self::assertCount(1, $failed->getEvents());
+        self::assertSame($failed->getEndEpochNanos(), $failed->getEvents()[0]->getEpochNanos());
+        self::assertSame(['exception.type' => 'RuntimeException'], $failed->getEvents()[0]->getAttributes()->toArray());
+        self::assertSame([], $fine->getEvents());
+    }
+
     public function testCopiesScalarContextAsProfilingAttributesWithSemconvDuplicates(): void
     {
-        $span = new StubSpan('GET /pay', ['url_path' => '/pay', 'profiling_detached' => true, 'profiling_automatic' => true, 'trace_span_id' => 'x', 'trace_parent_span_id' => 'y']);
+        $span = new StubSpan('GET /pay', ['url_path' => '/pay', 'profiling_detached' => true, 'profiling_automatic' => true, 'profiling_outgoing_request' => true, 'trace_span_id' => 'x', 'trace_parent_span_id' => 'y']);
 
         $attributes = $this->mapper()->map($span, ['status' => 502, 'exception' => 'RuntimeException'], $this->ids(), SpanKind::KIND_CLIENT, null)->getAttributes()->toArray();
 

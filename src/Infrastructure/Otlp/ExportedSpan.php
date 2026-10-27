@@ -6,11 +6,14 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
 use OpenTelemetry\API\Trace\SpanContext;
 use OpenTelemetry\API\Trace\SpanContextInterface;
+use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\TraceFlags;
 use OpenTelemetry\SDK\Common\Attribute\Attributes;
 use OpenTelemetry\SDK\Common\Attribute\AttributesInterface;
 use OpenTelemetry\SDK\Common\Instrumentation\InstrumentationScopeInterface;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
+use OpenTelemetry\SDK\Trace\Event;
+use OpenTelemetry\SDK\Trace\Link;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\StatusDataInterface;
 use Override;
@@ -35,6 +38,7 @@ final readonly class ExportedSpan implements SpanDataInterface
         private array $attributes,
         private InstrumentationScopeInterface $scope,
         private ResourceInfo $resource,
+        private ?string $exceptionType = null,
     ) {
     }
 
@@ -110,13 +114,24 @@ final readonly class ExportedSpan implements SpanDataInterface
     #[Override]
     public function getEvents(): array
     {
-        return [];
+        if ($this->exceptionType === null) {
+            return [];
+        }
+
+        return [new Event('exception', $this->endEpochNanos, Attributes::create(['exception.type' => $this->exceptionType]))];
     }
 
+    /**
+     * A consumed message links to the span that sent it, as the messaging conventions ask, besides having it as parent.
+     */
     #[Override]
     public function getLinks(): array
     {
-        return [];
+        if ($this->kind !== SpanKind::KIND_CONSUMER || !$this->ids->remoteParent || $this->ids->parentSpanId === null) {
+            return [];
+        }
+
+        return [new Link($this->getParentContext(), Attributes::create([]))];
     }
 
     #[Override]

@@ -6,6 +6,7 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 
 use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExporterSettings;
+use OpenTelemetry\API\Signals;
 use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -29,6 +30,11 @@ final class ExporterSettingsTest extends TestCase
         'OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE',
         'OTEL_EXPORTER_OTLP_CLIENT_KEY',
         'OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY',
+        'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT',
+        'OTEL_EXPORTER_OTLP_LOGS_PROTOCOL',
+        'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
+        'OTEL_EXPORTER_OTLP_LOGS_COMPRESSION',
+        'OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE',
     ];
 
     #[Override]
@@ -47,6 +53,30 @@ final class ExporterSettingsTest extends TestCase
         self::assertSame('application/x-protobuf', $settings->contentType);
         self::assertSame('http://localhost:4318/v1/traces', $settings->endpoint);
         self::assertSame('none', $settings->compression);
+    }
+
+    public function testLogsGoToTheLogsPathAndTheirOwnVariables(): void
+    {
+        self::assertSame('http://alloy:4318/v1/logs', ExporterSettings::resolve('http://alloy:4318', 'http/json', 1000, Signals::LOGS)->endpoint);
+        self::assertSame('http://alloy:4317/opentelemetry.proto.collector.logs.v1.LogsService/Export', ExporterSettings::resolve('http://alloy:4317', 'grpc', 1000, Signals::LOGS)->endpoint);
+
+        putenv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://traces:4318/t');
+        putenv('OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=grpc');
+        putenv('OTEL_EXPORTER_OTLP_TRACES_COMPRESSION=gzip');
+        putenv('OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE=/etc/ssl/traces.pem');
+        putenv('OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://logs:4318/l');
+        putenv('OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/json');
+        putenv('OTEL_EXPORTER_OTLP_LOGS_HEADERS=x-signal=logs');
+        putenv('OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE=/etc/ssl/logs.pem');
+
+        $logs = ExporterSettings::resolve(null, null, 1000, Signals::LOGS);
+
+        self::assertSame('http://logs:4318/l', $logs->endpoint);
+        self::assertSame('http/json', $logs->protocol);
+        self::assertSame('none', $logs->compression);
+        self::assertSame('logs', $logs->headers['x-signal'] ?? null);
+        self::assertSame('/etc/ssl/logs.pem', $logs->caFile);
+        self::assertSame('http://traces:4318/t', ExporterSettings::resolve(null, null, 1000)->endpoint);
     }
 
     public function testAnEmptyEndpointIsUnset(): void

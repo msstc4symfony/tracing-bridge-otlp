@@ -6,6 +6,9 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp;
 
 use Closure;
 use Msstc4Symfony\TracingBridgeOtlp\Application\Port\SpanFlushInterface;
+use OpenTelemetry\SDK\Logs\LogRecordExporterInterface;
+use OpenTelemetry\SDK\Logs\ReadableLogRecord;
+use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use Override;
 use Psr\Cache\CacheItemPoolInterface;
@@ -14,8 +17,9 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
- * Exports the buffered spans in one batch. A failed export is logged once and pauses exporting, so a collector that
- * is down costs the timeout once per pause rather than once per request or message.
+ * Exports the buffered spans, then the buffered log records, in one batch each. A failed export is logged once and
+ * pauses exporting both, so a collector that is down costs the timeout once per pause rather than once per request or
+ * message.
  *
  * @internal
  */
@@ -39,13 +43,19 @@ final class Flusher implements SpanFlushInterface
     /** Spans drained without export since the last failure. */
     private int $dropped = 0;
 
+    /** The same for log records. */
+    private int $droppedLogs = 0;
+
     private ?SpanExporterInterface $exporter = null;
+
+    private ?LogRecordExporterInterface $logExporter = null;
 
     /**
      * @param Closure(): SpanExporterInterface $exporterFactory called on the first export: a misconfigured endpoint or
      *                                                          protocol then fails like an export, not the application
      * @param CacheItemPoolInterface|null $pauses shares the pause with the other processes using it (PHP-FPM, cron);
      *                                            null: the pause holds for this process only
+     * @param Closure(): LogRecordExporterInterface|null $logExporterFactory like $exporterFactory, for $logs
      */
     public function __construct(
         private readonly SpanBuffer $buffer,
@@ -53,6 +63,8 @@ final class Flusher implements SpanFlushInterface
         private readonly ClockInterface $clock,
         private readonly LoggerInterface $logger,
         private readonly ?CacheItemPoolInterface $pauses = null,
+        private readonly ?LogBuffer $logs = null,
+        private readonly ?Closure $logExporterFactory = null,
     ) {
     }
 
@@ -60,49 +72,100 @@ final class Flusher implements SpanFlushInterface
     public function flush(): void
     {
         $spans = $this->buffer->drain();
-        if ($spans === []) {
+        $records = $this->logs?->drain() ?? [];
+        if ($spans === [] && $records === []) {
             return;
         }
 
         // The later pause holds: another process may have failed after this one.
         if ($this->now() < max($this->pausedUntil ?? 0.0, $this->sharedPause() ?? 0.0)) {
             $this->dropped += count($spans);
+            $this->droppedLogs += count($records);
 
             return;
         }
 
+        if ($spans !== [] && !$this->exportSpans($spans)) {
+            $this->droppedLogs += count($records);
+
+            return;
+        }
+
+        if ($records !== [] && !$this->exportLogs($records)) {
+            return;
+        }
+
+        $this->pausedUntil = null;
+    }
+
+    /**
+     * @param non-empty-list<SpanDataInterface> $spans
+     */
+    private function exportSpans(array $spans): bool
+    {
         try {
             $this->exporter ??= ($this->exporterFactory)();
-            $exported = $this->exporter->export($spans)->await();
+            $exported = $this->exporter->export($spans)->await() === true;
+            $exception = null;
         } catch (Throwable $exception) {
-            $this->fail(count($spans), $exception);
-
-            return;
+            $exported = false;
         }
 
-        if ($exported !== true) {
-            $this->fail(count($spans), null);
+        if (!$exported) {
+            $this->logger->warning('OTLP span export failed, {count} spans dropped.', $this->failure(count($spans) + $this->dropped, $exception));
+            $this->dropped = 0;
+            $this->pause();
 
-            return;
+            return false;
         }
 
         if ($this->dropped > 0) {
             $this->logger->info('OTLP span export resumed, {dropped} spans dropped while paused.', ['dropped' => $this->dropped]);
+            $this->dropped = 0;
         }
 
-        $this->pausedUntil = null;
-        $this->dropped = 0;
+        return true;
     }
 
-    private function fail(int $count, ?Throwable $exception): void
+    /**
+     * @param non-empty-list<ReadableLogRecord> $records
+     */
+    private function exportLogs(array $records): bool
     {
-        $context = ['count' => $count + $this->dropped];
-        if ($exception instanceof Throwable) {
-            $context['exception'] = $exception;
+        try {
+            $this->logExporter ??= $this->logExporterFactory instanceof Closure ? ($this->logExporterFactory)() : null;
+            $exported = $this->logExporter?->export($records)->await() === true;
+            $exception = null;
+        } catch (Throwable $exception) {
+            $exported = false;
         }
 
-        $this->logger->warning('OTLP span export failed, {count} spans dropped.', $context);
-        $this->dropped = 0;
+        if (!$exported) {
+            $this->logger->warning('OTLP log export failed, {count} log records dropped.', $this->failure(count($records) + $this->droppedLogs, $exception));
+            $this->droppedLogs = 0;
+            $this->pause();
+
+            return false;
+        }
+
+        if ($this->droppedLogs > 0) {
+            $this->logger->info('OTLP log export resumed, {dropped} log records dropped while paused.', ['dropped' => $this->droppedLogs]);
+            $this->droppedLogs = 0;
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array{count: int, exception?: Throwable}
+     */
+    private function failure(int $count, ?Throwable $exception): array
+    {
+        return $exception instanceof Throwable ? ['count' => $count, 'exception' => $exception] : ['count' => $count];
+    }
+
+    private function pause(): void
+    {
         $this->pausedUntil = $this->now() + self::PAUSE_SECONDS;
         $this->sharePause($this->pausedUntil);
     }

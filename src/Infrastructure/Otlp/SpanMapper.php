@@ -26,6 +26,7 @@ final readonly class SpanMapper
         TraceSpanKeys::PARENT_SPAN_ID => true,
         ...DetachedSpanFactoryInterface::DETACHED,
         ...DetachedSpanFactoryInterface::AUTOMATIC,
+        ...DetachedSpanFactoryInterface::OUTGOING_REQUEST,
     ];
 
     private const SERVER_ERROR = 500;
@@ -60,7 +61,7 @@ final readonly class SpanMapper
         $startNanos = $this->nanos($span->getStartTime());
 
         return new ExportedSpan(
-            $this->validName($span->getMessage()),
+            Utf8::valid($span->getMessage()),
             $kind,
             $ids,
             $this->status($context, $responseStatus),
@@ -69,7 +70,18 @@ final readonly class SpanMapper
             $this->attributes($context, $responseStatus),
             $this->scope,
             $this->resource,
+            $this->exceptionType($context),
         );
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function exceptionType(array $context): ?string
+    {
+        $exception = $this->nonEmptyString($context['exception'] ?? null);
+
+        return $exception === null ? null : $this->cut($exception);
     }
 
     /**
@@ -85,14 +97,6 @@ final readonly class SpanMapper
     }
 
     /**
-     * The OTLP encoder throws on a name or key that is not UTF-8, which would lose the whole batch.
-     */
-    private function validName(string $name): string
-    {
-        return $this->isUtf8($name) ? $name : (string) preg_replace('/[\x80-\xFF]/', '?', $name);
-    }
-
-    /**
      * @param array<string, mixed> $context
      *
      * @return array<string, bool|int|float|string>
@@ -101,7 +105,7 @@ final readonly class SpanMapper
     {
         $attributes = [];
         foreach ($context as $key => $value) {
-            if (isset(self::SKIPPED_KEYS[$key]) || !$this->isUtf8($key) || !is_scalar($value) || (is_float($value) && !is_finite($value))) {
+            if (isset(self::SKIPPED_KEYS[$key]) || !Utf8::isValid($key) || !is_scalar($value) || (is_float($value) && !is_finite($value))) {
                 continue;
             }
 
@@ -145,21 +149,11 @@ final readonly class SpanMapper
     }
 
     /**
-     * Characters of a UTF-8 string, as the SDK counts the limit; bytes of anything else (exported as bytes anyway).
+     * A string that is not UTF-8 is exported as bytes anyway.
      */
     private function cut(string $value): string
     {
-        // A string has no more characters than bytes: a short one needs no scan.
-        if (strlen($value) <= $this->valueLengthLimit) {
-            return $value;
-        }
-
-        return $this->isUtf8($value) ? mb_substr($value, 0, $this->valueLengthLimit, 'UTF-8') : substr($value, 0, $this->valueLengthLimit);
-    }
-
-    private function isUtf8(string $value): bool
-    {
-        return preg_match('//u', $value) === 1;
+        return Utf8::cut($value, $this->valueLengthLimit);
     }
 
     private function nonEmptyString(mixed $value): ?string

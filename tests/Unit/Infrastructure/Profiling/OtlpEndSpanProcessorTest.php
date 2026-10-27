@@ -99,6 +99,26 @@ final class OtlpEndSpanProcessorTest extends TestCase
         self::assertSame(SpanKind::KIND_INTERNAL, $exported->getKind());
     }
 
+    public function testAnOutgoingRequestSpanWithReservedIdsIsAClientWithThoseIds(): void
+    {
+        $this->holder->replace($this->continued('01'));
+        $span = $this->created(new StubSpan('http GET remote.example', [
+            'profiling_automatic' => true,
+            'profiling_outgoing_request' => true,
+            'profiling_detached' => true,
+            'trace_span_id' => 'b7ad6b7169203331',
+            'trace_parent_span_id' => 'a3ce929d0e0e4736',
+        ]));
+
+        $this->processor()->process($span, ['status' => 200]);
+
+        $exported = $this->single();
+        self::assertSame(SpanKind::KIND_CLIENT, $exported->getKind());
+        self::assertSame(self::TRACE_ID, $exported->getTraceId());
+        self::assertSame('b7ad6b7169203331', $exported->getSpanId());
+        self::assertSame('a3ce929d0e0e4736', $exported->getParentSpanId());
+    }
+
     public function testADbalSpanIsAClient(): void
     {
         $span = $this->created(new StubSpan('SELECT 1', ['connection' => 'default', 'profiling_automatic' => true, 'trace_span_id' => 'b7ad6b7169203331', 'trace_parent_span_id' => 'a3ce929d0e0e4736']));

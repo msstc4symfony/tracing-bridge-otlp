@@ -27,6 +27,7 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
             'timeout_ms' => 1000,
             'max_buffered_spans' => 2048,
             'pause_pool' => null,
+            'logs' => ['enabled' => false, 'level' => 'info', 'max_buffered_logs' => 2048],
         ], $this->process([]));
     }
 
@@ -40,6 +41,7 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
             'timeout_ms' => 300,
             'max_buffered_spans' => 10,
             'pause_pool' => 'cache.otlp_pause',
+            'logs' => ['level' => 'warning', 'max_buffered_logs' => 5, 'enabled' => true],
         ], $this->process([
             'enabled' => false,
             'service_name' => 'orders',
@@ -48,7 +50,15 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
             'timeout_ms' => 300,
             'max_buffered_spans' => 10,
             'pause_pool' => 'cache.otlp_pause',
+            'logs' => ['level' => 'warning', 'max_buffered_logs' => 5],
         ]));
+    }
+
+    public function testLogsTakeAnyMonologLevelInAnyCase(): void
+    {
+        $config = $this->process(['logs' => ['level' => 'ERROR']]);
+
+        self::assertSame(['level' => 'error', 'enabled' => true, 'max_buffered_logs' => 2048], $config['logs'] ?? null);
     }
 
     public function testAcceptsTheLowestLimitsAndProtobuf(): void
@@ -91,7 +101,7 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
     }
 
     /**
-     * @param array<string, bool|int|string|null> $config
+     * @param array<string, bool|int|float|string|array<string, int|string>|null> $config
      */
     #[TestWith([['protocol' => 'http/xml']])]
     #[TestWith([['timeout_ms' => 0]])]
@@ -102,6 +112,8 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
     #[TestWith([['endpoint' => true]])]
     #[TestWith([['service_name' => false]])]
     #[TestWith([['pause_pool' => 1.5]])]
+    #[TestWith([['logs' => ['level' => 'loud']]])]
+    #[TestWith([['logs' => ['max_buffered_logs' => 0]]])]
     public function testRejectsInvalidValues(array $config): void
     {
         $this->expectException(InvalidConfigurationException::class);
@@ -110,8 +122,8 @@ final class TracingBridgeOtlpBundleConfigurationTest extends TestCase
     }
 
     /**
-     * @param array<string, bool|int|string|null> $config
-     * @param array<string, bool|int|string|null> ...$more later configuration files
+     * @param array<string, bool|int|float|string|array<string, bool|int|string>|null> $config
+     * @param array<string, bool|int|float|string|array<string, bool|int|string>|null> ...$more later configuration files
      *
      * @return array<array-key, mixed>
      */

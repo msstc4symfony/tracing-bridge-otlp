@@ -12,6 +12,7 @@ use OpenTelemetry\SDK\Common\Instrumentation\InstrumentationScope;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
 use OpenTelemetry\SDK\Trace\StatusData;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
@@ -30,6 +31,42 @@ final class ExportedSpanTest extends TestCase
         self::assertSame(0, $span->getTotalDroppedEvents());
         self::assertSame(0, $span->getTotalDroppedLinks());
         self::assertTrue($span->hasEnded());
+    }
+
+    public function testAFailedSpanRecordsAnExceptionEventAtItsEnd(): void
+    {
+        $span = $this->span(new SpanIds(self::TRACE_ID, 'b7ad6b7169203331', null, false, 1), exceptionType: 'RuntimeException');
+
+        $events = $span->getEvents();
+
+        self::assertCount(1, $events);
+        self::assertSame('exception', $events[0]->getName());
+        self::assertSame(2, $events[0]->getEpochNanos());
+        self::assertSame(['exception.type' => 'RuntimeException'], $events[0]->getAttributes()->toArray());
+    }
+
+    public function testAConsumerLinksToTheRemoteProducer(): void
+    {
+        $span = $this->span(new SpanIds(self::TRACE_ID, 'b7ad6b7169203331', '00f067aa0ba902b7', true, 1), SpanKind::KIND_CONSUMER);
+
+        $links = $span->getLinks();
+
+        self::assertCount(1, $links);
+        self::assertSame(self::TRACE_ID, $links[0]->getSpanContext()->getTraceId());
+        self::assertSame('00f067aa0ba902b7', $links[0]->getSpanContext()->getSpanId());
+        self::assertTrue($links[0]->getSpanContext()->isRemote());
+        self::assertTrue($links[0]->getSpanContext()->isSampled());
+    }
+
+    /**
+     * @param SpanKind::KIND_* $kind
+     */
+    #[TestWith([SpanKind::KIND_CONSUMER, null, true])]
+    #[TestWith([SpanKind::KIND_CONSUMER, '00f067aa0ba902b7', false])]
+    #[TestWith([SpanKind::KIND_SERVER, '00f067aa0ba902b7', true])]
+    public function testOnlyAConsumerWithARemoteParentHasALink(int $kind, ?string $parent, bool $remote): void
+    {
+        self::assertSame([], $this->span(new SpanIds(self::TRACE_ID, 'b7ad6b7169203331', $parent, $remote, 1), $kind)->getLinks());
     }
 
     public function testARootHasAnInvalidParent(): void
@@ -68,8 +105,11 @@ final class ExportedSpanTest extends TestCase
         self::assertSame(0, $span->getParentContext()->getTraceFlags());
     }
 
-    private function span(SpanIds $ids): ExportedSpan
+    /**
+     * @param SpanKind::KIND_* $kind
+     */
+    private function span(SpanIds $ids, int $kind = SpanKind::KIND_INTERNAL, ?string $exceptionType = null): ExportedSpan
     {
-        return new ExportedSpan('x', SpanKind::KIND_INTERNAL, $ids, StatusData::unset(), 1, 2, [], new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([])));
+        return new ExportedSpan('x', $kind, $ids, StatusData::unset(), 1, 2, [], new InstrumentationScope('test', null, null, Attributes::create([])), ResourceInfo::create(Attributes::create([])), $exceptionType);
     }
 }

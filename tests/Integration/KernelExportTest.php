@@ -6,6 +6,7 @@ namespace Msstc4Symfony\TracingBridgeOtlp\Test\Integration;
 
 use Monolog\LogRecord;
 use Msstc4Symfony\ProfilingBundle\Application\ProfilingFactoryInterface;
+use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Monolog\OtlpLogHandler;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CollectingHandler;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\CountingPool;
 use Msstc4Symfony\TracingBridgeOtlp\Test\Fixtures\Job;
@@ -16,6 +17,8 @@ use Msstc4Symfony\TracingBundle\Domain\ValueObject\Baggage;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceContext;
 use Msstc4Symfony\TracingBundle\Domain\ValueObject\TraceParent;
 use OpenTelemetry\API\Trace\SpanKind;
+use OpenTelemetry\SDK\Logs\Exporter\InMemoryExporter as LogsInMemoryExporter;
+use OpenTelemetry\SDK\Logs\ReadableLogRecord;
 use OpenTelemetry\SDK\Trace\SpanDataInterface;
 use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use Override;
@@ -27,6 +30,7 @@ use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Contracts\Service\ResetInterface;
@@ -70,8 +74,36 @@ final class KernelExportTest extends TestCase
         self::assertSame($work->getSpanId(), $call->getParentSpanId());
         self::assertSame(SpanKind::KIND_CLIENT, $call->getKind());
         self::assertSame(self::TRACE_ID, $call->getTraceId());
+        self::assertSame([$call->getSpanId()], $this->sentTraceParentSpanIds());
         self::assertSame($work->getSpanId(), $this->logExtra('inside work')['span_id'] ?? null);
         self::assertSame($unit->getSpanId(), $response->headers->has('traceresponse') ? TraceParent::fromHeader((string) $response->headers->get('traceresponse'))?->spanId : null);
+    }
+
+    public function testLogsOfARequestGoOutWithItsSpansInTheirTraceContext(): void
+    {
+        $kernel = $this->boot(TestKernel::ENV_LOGS);
+        $request = Request::create('/traced', server: ['HTTP_TRACEPARENT' => '00-' . self::TRACE_ID . '-' . self::CALLER_SPAN . '-01']);
+
+        $response = $kernel->handle($request);
+        $kernel->terminate($request, $response);
+
+        $work = $this->exportedByName()['work'] ?? null;
+        self::assertNotNull($work);
+        $exporter = $kernel->getContainer()->get(TestKernel::LOG_EXPORTER);
+        self::assertInstanceOf(LogsInMemoryExporter::class, $exporter);
+        $inside = null;
+        foreach ($exporter->getStorage() as $record) {
+            self::assertInstanceOf(ReadableLogRecord::class, $record);
+            self::assertNotSame(OtlpLogHandler::OWN_CHANNEL, $record->getAttributes()->get('monolog.channel'));
+            if ($record->getBody() === 'inside work') {
+                $inside = $record;
+            }
+        }
+
+        self::assertInstanceOf(ReadableLogRecord::class, $inside);
+        self::assertSame(self::TRACE_ID, $inside->getSpanContext()?->getTraceId());
+        self::assertSame($work->getSpanId(), $inside->getSpanContext()->getSpanId());
+        self::assertSame('INFO', $inside->getSeverityText());
     }
 
     public function testTheExportGoesOutOncePerRequestAfterTerminate(): void
@@ -264,6 +296,26 @@ final class KernelExportTest extends TestCase
         self::assertIsString($file);
 
         return $file;
+    }
+
+    /**
+     * @return list<string> the span id of each traceparent the mocked HTTP client received
+     */
+    private function sentTraceParentSpanIds(): array
+    {
+        $response = $this->testContainer()->get('test.mock_response');
+        self::assertInstanceOf(MockResponse::class, $response);
+        $headers = $response->getRequestOptions()['normalized_headers'] ?? null;
+        self::assertIsArray($headers);
+        $lines = $headers['traceparent'] ?? [];
+        self::assertIsArray($lines);
+        $spanIds = [];
+        foreach ($lines as $line) {
+            self::assertIsString($line);
+            $spanIds[] = TraceParent::fromHeader(substr($line, strlen('traceparent: ')))->spanId ?? '';
+        }
+
+        return $spanIds;
     }
 
     private function testContainer(): ContainerInterface

@@ -46,9 +46,9 @@
   "require": {
     "php": ">=8.2",
     "composer-runtime-api": ">=2.2",
-    "msstc4symfony/profiling-bundle": "^2.2",
-    "msstc4symfony/tracing-bridge-profiling": "^1.2",
-    "msstc4symfony/tracing-bundle": "^2.2",
+    "msstc4symfony/profiling-bundle": "^2.3.1",
+    "msstc4symfony/tracing-bridge-profiling": "^1.3",
+    "msstc4symfony/tracing-bundle": "^2.4",
     "nyholm/psr7": "^1.8",
     "open-telemetry/exporter-otlp": "^1.4",
     "open-telemetry/sdk": "^1.15",
@@ -83,6 +83,7 @@
   },
   "suggest": {
     "ext-curl": "bounds DNS resolution by timeout_ms (the native HTTP client resolves names without a timeout)",
+    "monolog/monolog": "logs.enabled: Monolog records over OTLP",
     "open-telemetry/transport-grpc": "protocol: grpc (needs ext-grpc)"
   },
   "config": {
@@ -94,6 +95,7 @@
     "sort-packages": true
   },
   "conflict": {
+    "monolog/monolog": "<3.0",
     "symfony/symfony": "*"
   },
   "extra": {

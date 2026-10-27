@@ -15,7 +15,8 @@ use OpenTelemetry\SDK\Common\Configuration\Defaults;
 use OpenTelemetry\SDK\Common\Configuration\Variables;
 
 /**
- * Where and how spans are exported: the bundle options first, then the standard OTEL_EXPORTER_OTLP_* variables.
+ * Where and how spans or log records are exported: the bundle options first, then the standard OTEL_EXPORTER_OTLP_*
+ * variables of the signal (OTEL_EXPORTER_OTLP_TRACES_* or _LOGS_*), then the shared ones.
  * OTEL_EXPORTER_OTLP_TIMEOUT is ignored: the SDK default of 10 s is too long for the end of every unit of work.
  *
  * @internal
@@ -30,11 +31,15 @@ final readonly class ExporterSettings
 
     // The SDK declares only the CA variables; the client ones come from the OTLP exporter specification. All are read
     // through the SDK's resolvers ($_SERVER, environment, php.ini) like the other OTEL_* variables.
-    private const CA_FILE = ['OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE', 'OTEL_EXPORTER_OTLP_CERTIFICATE'];
+    private const CA_FILE = 'CERTIFICATE';
 
-    private const CLIENT_CERTIFICATE = ['OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE', 'OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE'];
+    private const CLIENT_CERTIFICATE = 'CLIENT_CERTIFICATE';
 
-    private const CLIENT_KEY = ['OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY', 'OTEL_EXPORTER_OTLP_CLIENT_KEY'];
+    private const CLIENT_KEY = 'CLIENT_KEY';
+
+    private const SIGNAL_PREFIXES = [Signals::TRACE => 'OTEL_EXPORTER_OTLP_TRACES_', Signals::LOGS => 'OTEL_EXPORTER_OTLP_LOGS_'];
+
+    private const SHARED_PREFIX = 'OTEL_EXPORTER_OTLP_';
 
     private const MILLIS_PER_SECOND = 1000;
 
@@ -66,24 +71,25 @@ final readonly class ExporterSettings
      * @param string|null $endpoint base URL; null or "" (an empty env placeholder): the OTEL_EXPORTER_OTLP_* variables
      * @param 'http/protobuf'|'http/json'|'grpc'|null $protocol null: the OTEL_EXPORTER_OTLP_* variables
      * @param positive-int $timeoutMs
+     * @param Signals::TRACE|Signals::LOGS $signal
      *
      * @throws LogicException for a protocol or compression from the variables this exporter cannot use
      */
-    public static function resolve(?string $endpoint, ?string $protocol, int $timeoutMs): self
+    public static function resolve(?string $endpoint, ?string $protocol, int $timeoutMs, string $signal = Signals::TRACE): self
     {
-        $protocol ??= self::protocolFromEnvironment();
+        $protocol ??= self::protocolFromEnvironment($signal);
         $endpoint = $endpoint === '' ? null : $endpoint;
 
         return new self(
             $protocol,
-            self::endpoint($endpoint, $protocol),
+            self::endpoint($endpoint, $protocol, $signal),
             Protocols::contentType($protocol),
-            self::headers(),
-            self::compression(),
+            self::headers($signal),
+            self::compression($signal),
             $timeoutMs / self::MILLIS_PER_SECOND,
-            self::firstVariable(self::CA_FILE),
-            self::firstVariable(self::CLIENT_CERTIFICATE),
-            self::firstVariable(self::CLIENT_KEY),
+            self::firstVariable(self::names($signal, self::CA_FILE)),
+            self::firstVariable(self::names($signal, self::CLIENT_CERTIFICATE)),
+            self::firstVariable(self::names($signal, self::CLIENT_KEY)),
         );
     }
 
@@ -113,10 +119,11 @@ final readonly class ExporterSettings
     /**
      * @return 'http/protobuf'|'http/json'|'grpc'
      */
-    private static function protocolFromEnvironment(): string
+    private static function protocolFromEnvironment(string $signal): string
     {
-        $protocol = Configuration::has(Variables::OTEL_EXPORTER_OTLP_TRACES_PROTOCOL)
-            ? Configuration::getEnum(Variables::OTEL_EXPORTER_OTLP_TRACES_PROTOCOL)
+        $variable = self::SIGNAL_PREFIXES[$signal] . 'PROTOCOL';
+        $protocol = Configuration::has($variable)
+            ? Configuration::getEnum($variable)
             : Configuration::getEnum(Variables::OTEL_EXPORTER_OTLP_PROTOCOL, Defaults::OTEL_EXPORTER_OTLP_PROTOCOL);
 
         return in_array($protocol, self::PROTOCOLS, true)
@@ -124,22 +131,31 @@ final readonly class ExporterSettings
             : throw new LogicException(sprintf('The OTLP protocol "%s" is not supported; use one of %s.', $protocol, implode(', ', self::PROTOCOLS)));
     }
 
-    private static function endpoint(?string $base, string $protocol): string
+    private static function endpoint(?string $base, string $protocol, string $signal): string
     {
-        if ($base === null && Configuration::has(Variables::OTEL_EXPORTER_OTLP_TRACES_ENDPOINT)) {
-            return Configuration::getString(Variables::OTEL_EXPORTER_OTLP_TRACES_ENDPOINT);
+        $variable = self::SIGNAL_PREFIXES[$signal] . 'ENDPOINT';
+        if ($base === null && Configuration::has($variable)) {
+            return Configuration::getString($variable);
         }
 
         return self::signalEndpoint($base ?? (Configuration::has(Variables::OTEL_EXPORTER_OTLP_ENDPOINT)
             ? Configuration::getString(Variables::OTEL_EXPORTER_OTLP_ENDPOINT)
-            : Defaults::OTEL_EXPORTER_OTLP_ENDPOINT), $protocol);
+            : Defaults::OTEL_EXPORTER_OTLP_ENDPOINT), $protocol, $signal);
     }
 
-    private static function signalEndpoint(string $base, string $protocol): string
+    private static function signalEndpoint(string $base, string $protocol, string $signal): string
     {
         return $protocol === Protocols::GRPC
-            ? rtrim($base, '/') . OtlpUtil::method(Signals::TRACE)
-            : HttpEndpointResolver::create()->resolveToString($base, Signals::TRACE);
+            ? rtrim($base, '/') . OtlpUtil::method($signal)
+            : HttpEndpointResolver::create()->resolveToString($base, $signal);
+    }
+
+    /**
+     * @return list<string> the variable of the signal, then the shared one
+     */
+    private static function names(string $signal, string $suffix): array
+    {
+        return [self::SIGNAL_PREFIXES[$signal] . $suffix, self::SHARED_PREFIX . $suffix];
     }
 
     /**
@@ -160,14 +176,14 @@ final readonly class ExporterSettings
     }
 
     /**
-     * OTEL_EXPORTER_OTLP_TRACES_HEADERS / OTEL_EXPORTER_OTLP_HEADERS and the OTLP user agent.
+     * OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS / OTEL_EXPORTER_OTLP_HEADERS and the OTLP user agent.
      *
      * @return array<string, string>
      */
-    private static function headers(): array
+    private static function headers(string $signal): array
     {
         $headers = [];
-        foreach (OtlpUtil::getHeaders(Signals::TRACE) as $name => $value) {
+        foreach (OtlpUtil::getHeaders($signal) as $name => $value) {
             if (is_string($value)) {
                 $headers[(string) $name] = $value;
             }
@@ -179,10 +195,11 @@ final readonly class ExporterSettings
     /**
      * @return 'none'|'gzip'
      */
-    private static function compression(): string
+    private static function compression(string $signal): string
     {
-        $compression = Configuration::has(Variables::OTEL_EXPORTER_OTLP_TRACES_COMPRESSION)
-            ? Configuration::getEnum(Variables::OTEL_EXPORTER_OTLP_TRACES_COMPRESSION)
+        $variable = self::SIGNAL_PREFIXES[$signal] . 'COMPRESSION';
+        $compression = Configuration::has($variable)
+            ? Configuration::getEnum($variable)
             : Configuration::getEnum(Variables::OTEL_EXPORTER_OTLP_COMPRESSION, self::DEFAULT_COMPRESSION);
 
         return in_array($compression, self::COMPRESSIONS, true)
