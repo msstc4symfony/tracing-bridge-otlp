@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Monolog;
 
+use Closure;
 use DateTimeImmutable;
 use Monolog\Level;
 use Monolog\LogRecord;
@@ -21,6 +22,7 @@ use Override;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 #[CoversClass(OtlpLogHandler::class)]
 #[UsesClass(LogBuffer::class)]
@@ -32,6 +34,9 @@ final class OtlpLogHandlerTest extends TestCase
     private LogBuffer $buffer;
 
     private int $flushes = 0;
+
+    /** @var (Closure(): ResourceInfo)|null */
+    private ?Closure $resource = null;
 
     #[Override]
     protected function setUp(): void
@@ -69,6 +74,16 @@ final class OtlpLogHandlerTest extends TestCase
         self::assertSame([], $this->buffer->drain());
     }
 
+    public function testARecordThatCannotBeMappedIsLostAlone(): void
+    {
+        $this->resource = static fn (): never => throw new RuntimeException('service_name variable not set');
+        $handler = $this->handler(Level::Debug);
+
+        $handler->handle($this->record(Level::Info));
+
+        self::assertSame([], $this->buffer->drain());
+    }
+
     public function testLetsOtherHandlersSeeTheRecord(): void
     {
         self::assertFalse($this->handler(Level::Debug)->handle($this->record(Level::Info)));
@@ -76,7 +91,11 @@ final class OtlpLogHandlerTest extends TestCase
 
     private function handler(Level $level): OtlpLogHandler
     {
-        $mapper = new LogRecordMapper(new InstrumentationScope('test', null, null, Attributes::create([])), static fn (): ResourceInfo => ResourceInfo::create(Attributes::create([])), new InMemoryTraceContextHolder());
+        $mapper = new LogRecordMapper(
+            new InstrumentationScope('test', null, null, Attributes::create([])),
+            $this->resource ?? static fn (): ResourceInfo => ResourceInfo::create(Attributes::create([])),
+            new InMemoryTraceContextHolder(),
+        );
         $flush = new class($this->flushes) implements SpanFlushInterface {
             public function __construct(private int &$flushes)
             {

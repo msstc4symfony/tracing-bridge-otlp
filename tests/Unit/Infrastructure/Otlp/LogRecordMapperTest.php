@@ -64,6 +64,31 @@ final class LogRecordMapperTest extends TestCase
         self::assertSame('orders', $first->getResource()->getAttributes()->get('service.name'));
     }
 
+    public function testAResourceThatFailsIsTriedAgainWithTheNextRecord(): void
+    {
+        $calls = 0;
+        $mapper = new LogRecordMapper(
+            new InstrumentationScope('test', null, null, Attributes::create([])),
+            static function () use (&$calls): ResourceInfo {
+                if (++$calls === 1) {
+                    throw new RuntimeException('not yet');
+                }
+
+                return ResourceInfo::create(Attributes::create([]));
+            },
+            $this->holder,
+        );
+
+        try {
+            $mapper->map($this->record(Level::Info));
+            self::fail('The resource failure reaches the caller.');
+        } catch (RuntimeException) {
+        }
+
+        $mapper->map($this->record(Level::Info));
+        self::assertSame(2, $calls);
+    }
+
     public function testMapsTimeSeverityBodyAndTheCurrentSpan(): void
     {
         $record = $this->mapper()->map($this->record(Level::Warning, 'Payment declined', datetime: new DateTimeImmutable('2026-10-27 10:00:00.123456', new DateTimeZone('UTC'))));

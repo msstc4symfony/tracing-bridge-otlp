@@ -191,6 +191,8 @@ of their own without spans.
 - A Guzzle redirect is a new pass through the handler stack: its `traceparent` names the span around the call, not the
   CLIENT span (Symfony HttpClient keeps the CLIENT span on every redirect).
 - A fatal error ends PHP before the export: the spans of that unit of work are lost.
+- A `service_name` whose env variable is missing at runtime loses the export silently: spans and log records are not
+  built, the application goes on.
 - Log records written after the unit's export and before `kernel.reset` (a `kernel.terminate` / `console.terminate`
   listener below -8192, a `WorkerRunningEvent` listener between -512 and -1024) are dropped with the reset.
 - One buffer serves the container: spans of concurrent Fibers share it.

@@ -107,7 +107,10 @@ final class TestKernel extends Kernel
         if ($this->environment === self::ENV_LOGS) {
             $handlers['otlp'] = ['type' => 'service', 'id' => 'msstc4symfony_tracing_bridge_otlp.logs_handler'];
             // An env placeholder the warmup does not have: the handler is built before any record.
-            $container->extension('msstc4symfony_tracing_bridge_otlp', ['service_name' => '%env(' . self::LOGS_SERVICE_ENV . ')%', 'logs' => ['enabled' => true]]);
+            $container->extension('msstc4symfony_tracing_bridge_otlp', [
+                'service_name' => '%env(' . self::LOGS_SERVICE_ENV . ')%',
+                'logs' => ['enabled' => true],
+            ]);
         }
         $container->extension('monolog', ['handlers' => $handlers]);
         $container->extension('msstc4symfony_profiling', [

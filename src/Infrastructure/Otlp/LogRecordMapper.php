@@ -59,8 +59,8 @@ final class LogRecordMapper
     private readonly int $valueLengthLimit;
 
     /**
-     * @param Closure(): ResourceInfo $resource called on the first record: the handler is built with the logger, and
-     *                                          an env placeholder in service_name must not be needed before (cache:warmup)
+     * @param Closure(): ResourceInfo $resource called on the first record: the handler is built with the logger,
+     *                                          before an env placeholder in service_name may resolve
      * @param positive-int|null $valueLengthLimit null: the OTEL_*ATTRIBUTE_VALUE_LENGTH_LIMIT variables at runtime
      */
     public function __construct(

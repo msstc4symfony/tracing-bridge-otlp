@@ -82,6 +82,7 @@ final class KernelExportTest extends TestCase
 
     public function testTheLogHandlerIsBuiltWithoutTheServiceNameVariable(): void
     {
+        putenv(TestKernel::LOGS_SERVICE_ENV);
         $kernel = $this->boot(TestKernel::ENV_LOGS);
 
         self::assertInstanceOf(OtlpLogHandler::class, $this->testContainer()->get('msstc4symfony_tracing_bridge_otlp.logs_handler'));
