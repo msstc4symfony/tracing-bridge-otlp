@@ -74,7 +74,9 @@ final class Flusher implements SpanFlushInterface
         private readonly ?LogBuffer $logs = null,
         private readonly ?Closure $logExporterFactory = null,
     ) {
-        if ((!$logs instanceof LogBuffer) !== (!$logExporterFactory instanceof Closure)) {
+        $exportsLogs = $logs instanceof LogBuffer;
+        $buildsLogExporter = $logExporterFactory instanceof Closure;
+        if ($exportsLogs !== $buildsLogExporter) {
             throw new InvalidArgumentException('Log records need a log exporter factory, and the factory needs the log buffer.');
         }
     }
@@ -120,8 +122,12 @@ final class Flusher implements SpanFlushInterface
             return;
         }
 
-        // A clock set back would otherwise bring an old pause back.
-        $this->pausedUntil = null;
+        // A clock set back would otherwise bring an old pause back, here or from the shared cache.
+        if ($this->pausedUntil !== null || $this->sharedPause !== null) {
+            $this->pausedUntil = null;
+            $this->sharedPause = null;
+            $this->forgetSharedPause();
+        }
     }
 
     /**
@@ -225,6 +231,14 @@ final class Flusher implements SpanFlushInterface
     {
         return $this->sharedPauseReadAt !== null && $now >= $this->sharedPauseReadAt
             && $now - $this->sharedPauseReadAt < self::SHARED_PAUSE_READ_SECONDS;
+    }
+
+    private function forgetSharedPause(): void
+    {
+        try {
+            $this->pauses?->deleteItem(self::PAUSE_KEY);
+        } catch (Throwable) {
+        }
     }
 
     private function sharePause(float $until): void

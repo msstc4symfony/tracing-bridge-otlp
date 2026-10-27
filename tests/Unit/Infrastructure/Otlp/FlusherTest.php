@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Msstc4Symfony\TracingBridgeOtlp\Test\Unit\Infrastructure\Otlp;
 
+// The cache's InvalidArgumentException is imported too.
 use InvalidArgumentException as InvalidFlusherArgument;
 use LogicException;
 use Msstc4Symfony\TracingBridgeOtlp\Infrastructure\Otlp\ExportedSpan;
@@ -509,6 +510,59 @@ final class FlusherTest extends TestCase
 
         self::assertCount(1, $nested->batches);
         self::assertCount(1, $this->logs->drain(), 'the record logged while exporting waits for the next flush');
+    }
+
+    public function testAResumedExportForgetsTheSharedPauseToo(): void
+    {
+        $pauses = new ArrayAdapter();
+        $flusher = new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses);
+        $this->exporter->outcome = false;
+        $this->fill(1);
+        $flusher->flush();
+        $this->exporter->outcome = true;
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->fill(1);
+        $flusher->flush();
+
+        $this->clock->modify('-1 hour');
+        $this->clock->sleep(Flusher::SHARED_PAUSE_READ_SECONDS);
+        $this->fill(1);
+        (new Flusher($this->buffer, fn (): RecordingExporter => $this->exporter, $this->clock, $this->logger, $pauses))->flush();
+
+        self::assertCount(3, $this->exporter->batches);
+    }
+
+    public function testAPauseStaysWhenTheSpansWentOutButTheLogRecordsDidNot(): void
+    {
+        $flusher = $this->withLogs();
+        $this->logExporter->outcome = false;
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        $this->fill(1);
+        $flusher->flush();
+
+        self::assertCount(1, $this->exporter->batches);
+    }
+
+    public function testExportingBothSignalsEndsAPauseForGood(): void
+    {
+        $flusher = $this->withLogs();
+        $this->logExporter->outcome = false;
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+        $this->logExporter->outcome = true;
+        $this->clock->sleep(Flusher::PAUSE_SECONDS);
+        $this->fill(1);
+        $this->logs->add($this->logRecord());
+        $flusher->flush();
+
+        $this->clock->modify('-1 hour');
+        $this->fill(1);
+        $flusher->flush();
+
+        self::assertCount(2, $this->exporter->batches);
     }
 
     public function testAClockSetBackAfterAResumedExportDoesNotPauseAgain(): void

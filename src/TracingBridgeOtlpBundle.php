@@ -131,11 +131,13 @@ final class TracingBridgeOtlpBundle extends AbstractBundle
             throw new LogicException('msstc4symfony_tracing_bridge_otlp.logs needs monolog/monolog.');
         }
 
+        $logs = $config['logs'];
+        unset($config['logs']);
         foreach ($config as $key => $value) {
             $builder->setParameter(self::PARAMETER_PREFIX . $key, $value);
         }
 
-        foreach ($config['logs'] as $key => $value) {
+        foreach ($logs as $key => $value) {
             $builder->setParameter(self::PARAMETER_PREFIX . 'logs.' . $key, $value);
         }
 

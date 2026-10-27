@@ -125,8 +125,8 @@ final readonly class LogRecordMapper
 
         $values = array_diff_key([...$this->scalars($record->extra), ...$this->scalars($record->context)], self::TRACE_KEYS);
 
-        // The mapper's own names win over context and extra keys spelled the same.
-        return [...$values, ...$attributes];
+        // The mapper's own names come first, so a count limit keeps them, and win over keys spelled the same.
+        return [...$attributes, ...array_diff_key($values, $attributes)];
     }
 
     /**

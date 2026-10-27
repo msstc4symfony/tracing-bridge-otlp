@@ -169,20 +169,22 @@ monolog:
             id: msstc4symfony_tracing_bridge_otlp.logs_handler
 ```
 
-Each record becomes an OTLP log record of the span it was logged in: the `trace_id` / `span_id` tracing-bundle's
-`TraceLogProcessor` put in its `extra` — so a buffering handler (`fingers_crossed`, `buffer`) that passes records on later
-keeps them — else the span current when the handler writes it; the sampled flag when that trace is still current (also
-for an unsampled trace). Records written outside a unit of work (an idle worker) carry a trace of their own without
-spans. Further: body = the message, severity from the level, attributes =
-the scalar `extra` and `context` values (context wins; tracing-bundle's `trace_id` and `span_id` are the record's
-trace context instead) plus `monolog.channel`, and `exception.type` / `exception.message` for a `Throwable` in
-`context['exception']` — these names win over context keys spelled the same. Every scalar value goes out, including what
-processors add (`ip`, `url` of WebProcessor, user ids): export only what you would log. Values are cut and cleaned like
-span attributes (`OTEL_LOGRECORD_ATTRIBUTE_VALUE_LENGTH_LIMIT` / `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`); the body is cleaned
-but not cut. The records go
-with the spans at the end of the unit of work, or earlier when `max_buffered_logs` is reached; a failed log export logs
-one `warning` and pauses both exports. Records of the bridge's own `otlp` channel are not exported. The endpoint and
-protocol are the span ones; `OTEL_EXPORTER_OTLP_LOGS_*` take the place of the `_TRACES_` variables.
+Each record becomes an OTLP log record of the span it was logged in: the `trace_id` / `span_id` that tracing-bundle's
+`TraceLogProcessor` put in its `extra`, so a buffering handler (`fingers_crossed`, `buffer`) that passes records on
+later keeps them; without them, the span current when the handler writes it. The sampled flag is that of the trace when
+it is still current, also for an unsampled trace. Records written outside a unit of work (an idle worker) carry a trace
+of their own without spans.
+
+- Body: the message, cleaned of bytes that are not UTF-8 but not cut. Severity: from the level.
+- Attributes: `monolog.channel`, `exception.type` / `exception.message` for a `Throwable` in `context['exception']`,
+  then the scalar `extra` and `context` values (context wins; `trace_id` and `span_id` become the trace context
+  instead). The bridge's own names come first and win over keys spelled the same. Values are cut and cleaned like span
+  attributes (`OTEL_LOGRECORD_ATTRIBUTE_VALUE_LENGTH_LIMIT` / `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`).
+- Every scalar value goes out, including what processors add (`ip`, `url` of WebProcessor, user ids): export only what
+  you would log.
+- The records go with the spans at the end of the unit of work, or earlier when `max_buffered_logs` is reached. A failed
+  log export logs one `warning` and pauses both exports; records of the bridge's own `otlp` channel are not exported.
+- The endpoint and protocol are the span ones; `OTEL_EXPORTER_OTLP_LOGS_*` take the place of the `_TRACES_` variables.
 
 ## Limitations
 

@@ -88,10 +88,10 @@ final class LogRecordMapperTest extends TestCase
         ]));
 
         self::assertSame([
+            'monolog.channel' => 'app',
             'runtime_id' => 'r1',
             'order_id' => 42,
             'paid' => true,
-            'monolog.channel' => 'app',
         ], $record->getAttributes()->toArray());
     }
 
@@ -136,11 +136,14 @@ final class LogRecordMapperTest extends TestCase
     #[TestWith([['trace_id' => '4bf92f3577b34da6a3ce929d0e0e4736', 'span_id' => 'nope']])]
     #[TestWith([['trace_id' => '4bf92f3577b34da6a3ce929d0e0e4736']])]
     #[TestWith([['span_id' => 'b7ad6b7169203331']])]
+    #[TestWith([['trace_id' => '4BF92F3577B34DA6A3CE929D0E0E4736', 'span_id' => 'b7ad6b7169203331']])]
     public function testInvalidLoggedIdsFallBackToTheCurrentSpan(array $extra): void
     {
         $span = $this->mapper()->map($this->record(Level::Info, extra: $extra))->getSpanContext();
 
-        self::assertSame($this->holder->current()->traceParent->spanId, $span?->getSpanId());
+        self::assertSame($this->holder->current()->traceParent->traceId, $span?->getTraceId());
+        self::assertSame($this->holder->current()->traceParent->spanId, $span->getSpanId());
+        self::assertTrue($span->isSampled());
     }
 
     public function testTheMappersNamesWinOverContextKeys(): void
@@ -154,6 +157,18 @@ final class LogRecordMapperTest extends TestCase
         $attributes = $record->getAttributes()->toArray();
         self::assertSame(RuntimeException::class, $attributes['exception.type'] ?? null);
         self::assertSame('app', $attributes['monolog.channel'] ?? null);
+    }
+
+    public function testACountLimitKeepsTheMappersOwnAttributes(): void
+    {
+        putenv('OTEL_LOGRECORD_ATTRIBUTE_COUNT_LIMIT=2');
+        try {
+            $record = $this->mapper()->map($this->record(Level::Error, context: ['a' => 1, 'b' => 2, 'exception' => new RuntimeException('x')]));
+        } finally {
+            putenv('OTEL_LOGRECORD_ATTRIBUTE_COUNT_LIMIT');
+        }
+
+        self::assertSame(['monolog.channel' => 'app', 'exception.type' => RuntimeException::class], $record->getAttributes()->toArray());
     }
 
     public function testAnExceptionThatIsNoThrowableStaysAPlainAttribute(): void
@@ -176,7 +191,7 @@ final class LogRecordMapperTest extends TestCase
         $record = $this->mapper(4)->map($this->record(Level::Info, "caf\xE9 au lait", context: ['note' => 'abcdefgh', "k\xFF" => 'dropped']));
 
         self::assertSame('caf? au lait', $record->getBody(), 'the body is not an attribute: no length limit');
-        self::assertSame(['note' => 'abcd', 'monolog.channel' => 'app'], $record->getAttributes()->toArray());
+        self::assertSame(['monolog.channel' => 'app', 'note' => 'abcd'], $record->getAttributes()->toArray());
     }
 
     /**
