@@ -121,3 +121,25 @@
   и validate-замыкания не зовёт → `TypeError` в `ResourceFactory` при первом создании. Квирк Symfony, как у
   `sampling.ratio` в tracing-bundle; не лечим.
 - **Тест на `cache.app`** поведенческий: `TestKernel` декорирует `cache.app` `CountingPool`, после запроса обращений 0.
+
+## Logs over OTLP (1.2.0, 2026-10-27 UTC)
+
+- `LogRecordMapper` takes the trace/span ids from the record's `extra` (`TraceLogProcessor`), not the holder: buffering
+  Monolog handlers (`fingers_crossed`, `buffer`) call `write()` later, under another span or unit. The flags only come
+  from the holder when its trace id matches; otherwise DEFAULT (not sampled).
+- `Flusher` is not reentrant (`$flushing` guard): an SDK logger pointed at the app's PSR-3 logger could log during an
+  export and fill the log buffer again. `$logs` and `$logExporterFactory` go together (constructor throws otherwise).
+- `pausedUntil` is reset after a fully successful flush: with a clock set back an old pause would return.
+- `AttributeLimit::valueLength(Signals::LOGS)` reads `OTEL_LOGRECORD_ATTRIBUTE_VALUE_LENGTH_LIMIT`; the explicit
+  `setAttributeValueLengthLimit()` would otherwise override the SDK's own reading.
+- Rector rewrote `parent::export(...)` inside an anonymous subclass of a test exporter into `new parent(...)`: use the
+  `RecordingLogExporter::$onExport` hook instead of subclassing.
+- `SpanFlushInterface` now flushes logs too; rename deferred to 2.0.
+- 1.2.1: the log handler is built with the logger (boot, `cache:warmup`), so `LogRecordMapper` takes the resource as a
+  `service_closure` and builds `LoggerSharedState` on the first record — an unset `%env()%` in `service_name` must not
+  fail the warmup (found by the showcase `make check`).
+- `SpanMapper` still takes `ResourceInfo` eagerly: harmless while `OtlpEndSpanProcessor` (and so the mapper) is built
+  lazily by profiling; if the end-processor chain ever gets built at boot, give it the same `service_closure`.
+- 1.2.2: one pause per signal (`ExportPause`, keys `…paused_until` for spans, `…logs_paused_until` for logs). The shared
+  pause of 1.2.0/1.2.1 let a collector without a log pipeline (404 on /v1/logs) stop every span — found by the
+  showcase e2e after Alloy kept its old config (bind-mounted config, `compose up --build` does not restart Alloy).
