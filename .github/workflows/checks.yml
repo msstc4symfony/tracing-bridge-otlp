@@ -2,6 +2,9 @@ name: Code Quality Checks
 
 on:
   workflow_dispatch:
+  # Weekly, so a new advisory or a broken dependency shows up without a push.
+  schedule:
+    - cron: '6 4 * * 1'
   pull_request:
     paths-ignore:
       - '**/*.md'
@@ -22,7 +25,7 @@ permissions:
 
 jobs:
   standard:
-    uses: msstc4symfony/bundle-standard/.github/workflows/php-bundle.yml@v4.0.0
+    uses: msstc4symfony/bundle-standard/.github/workflows/php-bundle.yml@v4.2.0
     with:
       # Measured MSI 98 % / covered 98 % on 2026-10-25 UTC (3 equivalent mutants), minus a margin for noise.
       infection-min-msi: 95

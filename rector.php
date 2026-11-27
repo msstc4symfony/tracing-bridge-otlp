@@ -98,7 +98,8 @@ return static function (RectorConfig $rectorConfig) use ($writeLowestPackagesMan
                 FromServicePublicToDefaultsPublicRector::class,
                 ServiceSettersToSettersAutodiscoveryRector::class,
                 ClassPropertyAssignToConstructorPromotionRector::class,
-                PostIncDecToPreIncDecRector::class,
+                // Removed in Rector 2.9; skipped only where it still exists.
+                ...(\class_exists(PostIncDecToPreIncDecRector::class) ? [PostIncDecToPreIncDecRector::class] : []),
                 NewlineAfterStatementRector::class,
                 CatchExceptionNameMatchingTypeRector::class,
                 CoversAnnotationWithValueToAttributeRector::class,
